@@ -1,0 +1,4429 @@
+---
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+
+# 20220506_10x_RZB               
+           
+Lung ILCs (immune cells with partly residual T/B which need be kept in this version)              
+loading 50k cells, demo only get 13,474          
+(to increase datasize could get some more )          
+                
+0604: plus data called 20k more in cellranger, total 35,367 cells              
+(as BAS/EOS/NEU relatively get much lower nGene comparing with ILCs/Macrophages)                                       
+(to get much better resolution of those granulocytes, may should increase datasize by 1x to 3x)                  
+                 
+                 
+                 
+20240407                 
+rerun initial process with currently modified workflow for the two-year-ago data                   
+separate LUNG and BALF after preAnno           
+       
+individual LUNG data plot several figures        
+
+    
+20240705                   
+add Stab2+ ILC2.2 vs ILC2.1 (CTLonly)           
+       
+
+
+```{r message=FALSE, warning=FALSE}
+source("/Shared_win/projects/RNA_normal/analysis.10x.r")
+```
+
+
+## load processed obj                      
+
+
+```{r}
+GEX.seur <- readRDS("./sc10x_RZB.preAnno.rds")
+GEX.seur
+```
+
+
+### process and subset                  
+
+
+```{r}
+GEX.seur <- subset(GEX.seur, subset = preAnno2 != "MIX")
+GEX.seur
+```
+
+
+```{r}
+GEX.seur <- subset(GEX.seur, subset = cnt %in% c("LUNG.CTL","LUNG.CKO"))
+GEX.seur
+```
+
+
+```{r}
+#
+GEX.seur$preAnno1 <- factor(as.character(GEX.seur$preAnno1),
+                            levels = c("Bcell","Plasma",
+                                       "CD8T","CD4T","Treg","Tin",
+                                       "NK1","NK2",
+                                       "ILC2.CC","ILC2.1","ILC2.2",
+                                       "BAS","EOS",
+                                       paste0("NEU",1:5),
+                                       "pDC","cDC","migDC",
+                                       "Mono1","Mono2","IM1","IM2","IM3",
+                                       "AM.CC","AM1","AM2","AM3"))
+
+GEX.seur$preAnno2 <- factor(as.character(GEX.seur$preAnno2),
+                            levels = c("Bcell","Tcell",
+                                       "NK",
+                                       "ILC2",
+                                       "BAS","EOS",
+                                       "NEU",
+                                       "pDC","cDC","migDC",
+                                       "Monocyte","IM",
+                                       "AM"))
+
+GEX.seur$rep <- paste0("rep",
+                        gsub("LUNG.CTL|LUNG.CKO|BALF.CTL|BALF.CKO","",as.character(GEX.seur$FB.info)))
+
+
+GEX.seur$FB.info <- factor(as.character(GEX.seur$FB.info),
+                           levels = c("LUNG.CTL1","LUNG.CTL2",
+                                      "LUNG.CKO1","LUNG.CKO2"))
+
+#
+color.FB <- c(ggsci::pal_d3("category20c")(20)[c(1,6,2,7)],
+              ggsci::pal_d3("category20b")(20)[c(7,12,13,18)])
+
+
+color.cnt <- color.FB[c(1,3,5,7)]   
+color.cnt <- color.cnt[1:2]
+
+#
+color.pre1 <- c(scales::hue_pal()(32),"grey")
+color.pre2 <- c(ggsci::pal_igv("default")(40)[c(2,3,6,7,8,10,12,22,18:19,38,21,30)])
+
+```
+
+
+
+```{r fig.width=11.5,fig.height=4.5}
+pumap1 <- DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "preAnno2", cols = color.pre2) +
+  DimPlot(GEX.seur, reduction = "umap", label = F, group.by = "cnt", cols = color.cnt)
+pumap1
+```
+
+
+```{r fig.height=8, fig.width=13.1, message=FALSE, warning=FALSE}
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2,
+        pt.size = 0, group.by = "preAnno2", cols = color.pre2) &
+  geom_jitter(alpha=0.15, shape=16, width = 0.3 ,size = 0.12)
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2,
+        pt.size = 0, group.by = "preAnno2", cols = color.pre2)
+```
+
+
+
+```{r fig.width=13.1, fig.height=8}
+
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2,
+        pt.size = 0, group.by = "preAnno2", split.by = "FB.info", cols = color.FB[c(1,2,3,4)])
+```
+
+
+```{r}
+##
+# if want much cleaner data, here could do advanced filtering celltype-individually
+#
+# actually some main celltypes like Bcell/Plasma, Tcell, ILCs 
+#          are mixed with their cycling part,
+#          so might should consider at preAnno1 level
+#
+# here the whole distribution seems just not very bad, let's keep it 
+##
+```
+
+
+
+
+## new             
+
+
+### re-clustering                  
+
+
+#### PCA       
+
+
+```{r message=FALSE, warning=FALSE,varselection,fig.width=12,fig.height=4}
+GEX.seur <- FindVariableFeatures(GEX.seur, selection.method = "vst", nfeatures = 1500)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(GEX.seur), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(GEX.seur)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+
+```{r}
+# exclude MT genes  and more 
+            
+DIG <- grep("^mt-|^Tra|^Trb|^Trg|^Trd|^Tcr|^Igm|^Igh|^Igk|^Igl|Jchain|Mzb1|Vpreb|Lars2|Jun|Fos|^Hsp|^Rps|^Rpl|Hbb-|Hba-|^Dnaj|^AY|^AC|^AA|^AW|^BC|^Gm|^Hist|Rik$|-ps",
+            rownames(GEX.seur),value = T)
+CC_gene <- Hmisc::capitalize(tolower(as.vector(unlist(cc.genes.updated.2019))))
+
+
+VariableFeatures(GEX.seur) <- setdiff(VariableFeatures(object = GEX.seur),
+                                                c(#MT_gene,
+                                                  DIG, 
+                                                  CC_gene) )
+
+GEX.seur <- RunPCA(GEX.seur, features = VariableFeatures(GEX.seur))
+```
+
+
+```{r}
+length(setdiff(VariableFeatures(object = GEX.seur),
+                                                c(DIG,CC_gene)))
+setdiff(VariableFeatures(object = GEX.seur),
+                                                c(DIG,CC_gene))[1:300]
+```
+
+
+```{r fig.width=11,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "pca",dims = 1:2, group.by = "orig.ident") +
+  DimPlot(GEX.seur, reduction = "pca",dims = 3:4, group.by = "orig.ident")
+```
+
+
+```{r fig.width=11.5,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "pca",dims = 1:2, group.by = "FB.info", cols = color.FB) +
+  DimPlot(GEX.seur, reduction = "pca",dims = 3:4, group.by = "FB.info", cols = color.FB)
+```
+
+
+```{r pcsheat,fig.width=12,fig.height=15}
+DimHeatmap(GEX.seur, dims = 1:12, cells = 1500, balanced = TRUE,ncol = 4)
+```
+
+
+##### decide PCs to use          
+     
+```{r}
+ElbowPlot(GEX.seur,ndims = 50)
+```
+
+
+```{r}
+PCs <- 1:24
+
+GEX.seur <- FindNeighbors(GEX.seur, dims = PCs, k.param = 20)
+GEX.seur <- FindClusters(GEX.seur, method = 'igraph', resolution = 2.4)
+```
+
+
+#### Run UMAP/tSNE    
+
+```{r}
+GEX.seur <- RunTSNE(GEX.seur, dims=PCs, complexity = 100)
+GEX.seur <- RunUMAP(GEX.seur, dims=PCs, n.neighbors = 20, seed.use = 125)
+```
+
+
+```{r}
+#saveRDS(GEX.seur,"./sc10x_RZB.LUNG_test.rds")
+```
+
+
+```{r fig.width=12,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "tsne", label = T) + DimPlot(GEX.seur, reduction = "umap", label = T)
+```
+
+
+```{r fig.width=12,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "tsne", label = T, group.by = "preAnno2", cols = color.pre2) + 
+  DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "preAnno2", cols = color.pre2)
+```
+
+```{r fig.width=13.1,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "tsne", label = T, label.size = 2.5, group.by = "preAnno1", cols = color.pre1) + 
+  DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "preAnno1", cols = color.pre1)
+```
+
+
+```{r}
+GEX.seur$sort_clusters <- factor(GEX.seur$seurat_clusters,
+                                 levels = c(26,28,    # B Plasma
+                                            11,13,24,   # Tcell
+                                            12,29,0,5,32,   # NK
+                                            7,22,16,19,    # ILC2
+                                            31,    # BAS
+                                            18,    # EOS
+                                            1,2,6,8,9,   # NEU
+                                            17,  # pDC
+                                            30,25,    # cDC
+                                            23,   # migDC
+                                               
+                                            14,20,3,  # Mono
+                                            15,10,21,   # IM
+                                            27,4     # AM
+                                            ))
+```
+
+
+
+```{r fig.height=8, fig.width=18.1, message=FALSE, warning=FALSE}
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2,
+        pt.size = 0, group.by = "sort_clusters") &
+  geom_jitter(alpha=0.15, shape=16, width = 0.3 ,size = 0.12)
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2,
+        pt.size = 0, group.by = "sort_clusters")
+```
+
+
+```{r}
+check.markers <- c("Ptprc","Mki67",
+                   "Cd19","Cd79a","Pax5",
+                   "Sdc1","Jchain","Cd81",
+                   "Cd3d","Cd8a","Cd8b1",
+                   "Tcf7","Icos","Cd4","Foxp3",
+                   "Klrb1c","Ncr1","Eomes","Nkg7",
+                   "Gata3","Il1rl1","Ramp1","Il5",
+                   "Areg","Il13","Calca",
+                   "Csf2","Il6","Gata2","Cd200r3",
+                   "Siglecf","Ear6","Ccr3",
+                   "Itgam","Cd14","S100a8","S100a9",
+                   "Mmp9",
+                   "Siglech","Ccr9",
+                   "Ly6c1","Ly6c2",
+                   "P2ry14","Itgae","Xcr1","Clec9a",
+                   "Cd209a","Clec10a",
+                   "Fscn1","Ccr7","Calcb",
+                   "Lyz2","Cx3cr1",
+                   "Aif1","Csf1r","H2-DMa",
+                   "H2-Aa","H2-Eb1",
+                   "Mafb","Itgax","Mrc1","F7",
+                   "Krt79","Car4","Il18",
+                   "Chil3"
+                   )
+```
+
+```{r}
+check.markers %in% rownames(GEX.seur)
+```
+
+
+```{r fig.width=13.5, fig.height=6}
+pp.marker.sort <- DotPlot(GEX.seur, features = check.markers, group.by = "sort_clusters",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.marker.sort
+```
+
+
+
+```{r fig.width=12, fig.height=7.5}
+FeaturePlot(GEX.seur, features = c("Cd19","Cd3d","Cd8b1","Cd4",
+                                   "Foxp3","Cxcr6","Il17re","Ccr6",
+                                   "Cd81","Cx3cr1","Ly6c2","Mrc1"),
+            ncol = 4)
+```
+
+
+```{r}
+# remove NK-NEU doublet C32
+GEX.seur <- subset(GEX.seur, subset = seurat_clusters != c(32))
+GEX.seur
+```
+
+
+```{r fig.width=11.5,fig.height=4.5}
+DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "seurat_clusters") + 
+  DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "preAnno2", cols = color.pre2)
+```
+
+
+```{r}
+GEX.seur$sort_clusters <- factor(as.character(GEX.seur$seurat_clusters),
+                                 levels = c(26,28,    # B Plasma
+                                            11,13,24,   # Tcell
+                                            12,29,0,5,   # NK
+                                            7,22,16,19,    # ILC2
+                                            31,    # BAS
+                                            18,    # EOS
+                                            1,6,2,9,8,   # NEU
+                                            17,  # pDC
+                                            30,25,    # cDC
+                                            23,   # migDC
+                                            14,3,20,  # Mono
+                                            15,10,21,   # IM
+                                            27,4     # AM
+                                            ))
+```
+
+
+
+
+
+### find markers             
+
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+Idents(GEX.seur) <- "sort_clusters"
+
+#GEX.markers.pre <- FindAllMarkers(GEX.seur, only.pos = TRUE, min.pct = 0.05,
+#                                  test.use = "MAST",
+#                                  logfc.threshold = 0.25)
+GEX.markers.pre <- read.table("sc10x_RZB.markers.LUNG_sort0409.csv", header = TRUE, sep = ",")
+#GEX.markers.pre %>% group_by(cluster) %>% top_n(n = 8, wt = avg_log2FC)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+write.table(GEX.markers.pre, 
+            "sc10x_RZB.markers.LUNG_sort0409.csv", 
+            col.names = TRUE,
+            row.names = FALSE,
+            quote = F,
+            sep = ",")
+```
+
+
+
+```{r}
+GEX.markers.pre$cluster <- factor(as.character(GEX.markers.pre$cluster),
+                          levels = levels(GEX.seur$sort_clusters))
+
+markers.pre_t60 <- (GEX.markers.pre %>% group_by(cluster) %>% 
+                  filter(pct.1>0.05 & gene %in% grep("Rps|Rpl|mt-",GEX.markers.pre$gene,invert = T,value = T)) %>%
+                   top_n(n = 60, wt = avg_log2FC) %>%
+                    filter(p_val_adj < 0.01) %>%
+                   ungroup() %>%
+  arrange(desc(avg_log2FC*pct.1),gene) %>%
+                             distinct(gene, .keep_all = TRUE) %>%
+                             arrange(cluster,p_val_adj))$gene
+
+markers.pre_t120 <- (GEX.markers.pre %>% group_by(cluster) %>% 
+                  filter(pct.1>0.05 & gene %in% grep("Rps|Rpl|mt-",GEX.markers.pre$gene,invert = T,value = T)) %>%
+                   top_n(n = 120, wt = avg_log2FC) %>%
+                    filter(p_val_adj < 0.01) %>%
+                   ungroup() %>%
+  arrange(desc(avg_log2FC*pct.1),gene) %>%
+                             distinct(gene, .keep_all = TRUE) %>%
+                             arrange(cluster,p_val_adj))$gene
+```
+
+
+```{r}
+ttt = 997
+ttt/60
+ttt/64
+ttt/65
+```
+
+
+```{r fig.height=11.4, fig.width=9, message=FALSE, warning=FALSE}
+
+pp.t60 <- list()
+
+for(i in 1:17){
+pp.t60[[i]] <- DotPlot(GEX.seur, features = rev(markers.pre_t60[(60*i-59):(60*i)]))  + coord_flip() + 
+           theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6))
+}
+
+pp.t60
+```  
+
+
+```{r}
+ttt = 1781
+ttt/60
+ttt/64
+ttt/65
+```
+
+
+```{r fig.height=11.4, fig.width=9, message=FALSE, warning=FALSE}
+
+pp.t120 <- list()
+
+for(i in 1:30){
+pp.t120[[i]] <- DotPlot(GEX.seur, features = rev(markers.pre_t120[(60*i-59):(60*i)]))  + coord_flip() + 
+           theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6))
+}
+
+#pp.t120
+``` 
+
+
+```{r fig.width=21.5, fig.height=7.6}
+check.markers1 <- c("Ptprc","Mki67","Top2a",
+                   "Pax5","Ebf1","Cd19",
+                   "Cd81","Sdc1","Jchain",
+                   "Cd3d","Cd8a","Cd8b1",
+                   "Tcf7","Icos","Cd4","Foxp3",
+                   "Klrb1c","Ncr1","Eomes","Nkg7",
+                   "Ccl5","Gzma","Gzmb",
+                   "Gata3","Il1rl1","Ramp1","Areg",
+                   "Klrg1","Il13","Il5","Calca",
+                   "Csf2","Stab2",
+                   
+                   "Il6","Gata2","Cd200r3",
+                   "Serpinb2","Siglecf","Ear6","Ccr3",
+                   "Adgre1","Cd24a","Retnlg",
+                   "Itgam","Cd14","S100a8","S100a9",
+                   "Csf3r","Cxcr2","Mmp9","Hp",
+                   "Mmp8","Ly6g","Csf1","C3",
+                   "Il1a","Icam1","Maff","Tnf",
+                   
+                   "Siglech","Ccr9",
+                   "Ly6c1","Ly6c2",
+                   "P2ry14","Itgae","Xcr1","Clec9a",
+                   "H2-Aa","H2-Eb1","H2-DMa",
+                   "Cd209a","Clec10a",
+                   "Cd86","Ccl17","Ccl22","Ccr7","Fscn1",
+                   "Calcb",
+                   
+                   
+                   "Lyz2","Mafb","Plac8",
+                   "F13a1",
+                   "Ms4a4c","Ahr",
+                   
+                   "Aif1","Csf1r","Gpr141",
+                   
+                   "Cx3cr1","Ace","Adgre4",
+                   "Lilra5","Gngt2",
+                   
+                   "Retnla",
+                   
+                   "Fcrls","Hr",
+                   "C1qa","C1qc",
+                   "Igf1","Ccl7","Il11ra1",
+                   
+                   "Mmp12",
+                   "Itgax","Mrc1","Dab2","F7",
+                   "Car4","Mgll","Krt79","Il18",
+                   "Chil3"
+                   )
+
+
+pp.marker.sort1 <- DotPlot(GEX.seur, features = check.markers1, group.by = "sort_clusters",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.marker.sort1
+```
+
+
+```{r}
+table(GEX.seur@meta.data[,c("sort_clusters","FB.info")])
+```
+
+
+
+## Anno                    
+
+
+```{r}
+#### Anno1
+##
+# Bcell         26          Pax5+Ebf1+Cd19+Cd79a+
+# Plasma        28          Sdc1+Jchain+Cd19(lo)Cd79a(lo)     Mki67+cycling      Cd81+ (also some in ILC2, cDC1, IM1, AM)
+# 
+# Tcell      Cd3d+
+# CD8T          11          Cd8a+Cd8b1+
+# Th/Tin        13          should be mix of Th(left)/Tin(up, innate like iNK MAIT, gdT)/NKT(right)    partly  Cd4+
+# Treg          24          Cd4+Foxp3+       partly 'ILC2 markers' +
+#
+# NK1/2         12,   29,0,5             Klrb1c+Ncr1+Eomes+   Nkg7/Ccl5+(some in Tcell)
+#                                   NK1   Gzma(lo)Gzmb-   NK2    Gzma+Gzmb+
+#               
+# ILC2                 Gata3+Il1rl1+Ramp1+
+# ILC2.CC       7/22        Mki67+cycling
+# ILC2.1        16            Areg+Il5+Klrg1+Il13+Csf2(lo)Stab2(lo)    still a little part cycling  
+# ILC2.2        19            Areg+Il5+Klrg1(lo)Il13(lo)Csf2+Stab2+
+##
+# BAS           31         Gata2+Il6+Cd200r3+            (small number, and seems very few cells may mix with ILC2)
+# 
+# EOS           18         Serpinb2+   Siglecf/Ear6/Ccr3/Adgre1(F4/80)+ but not many detected in singlecell data
+#                                Adgre1(F4/80)      also some in Bcell,Mono,IM,AM     AM higher than IM                               
+#
+# NEU1/2/3      1,  6,2,  9, 8             Cd14/S100a8/S100a9/Csf3r hi    Cxcr2/Mmp9/Hp  decrease from NEU1 to NEU3
+#                             NEU1    Mmp8+ little Ly6g detected        
+#                             NEU2    Csf1(lo)C3(lo)           
+#                             NEU3   Csf1+C3+Il1a+Icam1+Maff+Tnf+  
+#                    Itgam(CD11b)+     also in EOS, cDC2, Mono, IM         few in AM 
+#
+# pDC          17      Siglech+Ccr9+Ly6c1+Ly6c2+    P2ry14+ (also in cDC1, AM)
+# cDC1         30      Xcr1+Clec9a+                   Itgae(CD103)+   also some in Treg            partly  Mki67+cycling
+# cDC2         25      Cd209a+Clec10a  (some few also in pDC)
+# migDC        23      Ccl17+Ccl22+Ccr7+Fscn1+         (some also in IM1, the boundary between them two might be not very clear)
+##
+# sometimes for Monocyte/Macrophage(/DC)  clustering/annotation, it might be a little complicated to describe with the joint parts
+#       because they all, or some subsets all co-expressed a few myeloid pan-markers, and have mixed high and low levels
+#       here just try to make it clear  (current marker list is manually selected from top60/120 markers)
+#
+# Mono1/2/3    14,  3,  20       Lyz2/Mafb highest (not for Mono3)   Plac8 highest (also high in pDC)    Gpr141+Cx3cr1+
+#              Mono1    Ly6c1/Ly6c2+  F13a1+  MHCII (-/lo)  Ms4a4c higher  Ahr higher
+#              Mono2    Ly6c1/Ly6c2-   F13a1(lo)   MHCII+ like H2-Aa/Eb1/DMa..    Cd86 higher  Aif1 higher
+#                         looks more likely to DC/IM 
+#              Mono3    Ly6c1/Ly6c2-   F13a1-   MHCII+ (lower than Mono2)  Ace/Adgre4/Gngt2 higher  Lira5+
+#                         Lira5+Gngt2+  seems like it could shift to AM              
+#
+# IM1/2/3      15,  10,   21           Retnla+ (low in IM3)   Itgax(Cd11c)+Mrc1+Dab2+ (higher than Mono/DC, but lower than AM)
+#              IM1            Fcrls+Hr+  tissue-resident like      Cd86+Ccl17+Cd81+Igf1-F7+        Mmp12/Itgax higher    
+#              IM2            C1qa/b/c+     Cd86+Ccl17-Cd81-Igf1+F7(lo)    Mafb/Aif1/Csf1r higher
+#              IM3            C1qa/b/c(lo)    Cd86-Ccl17-Cd81-Igf1+F7+    Ccl7+   Il11ra1+ 
+#
+# AM.CC        27               Mki67+cycling
+# AM           4                 Il11ra1/Itgax(Cd11c)/Mrc1/Dab2/F7/Chil3  hi          Car4/Mgll/Krt79/Il18+
+##
+####
+```
+
+
+
+
+
+```{r}
+# Anno1
+GEX.seur$Anno1 <- as.character(GEX.seur$seurat_clusters)
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(26)] <- "Bcell"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(28)] <- "Plasma"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(11)] <- "CD8T"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(13)] <- "Th/Tin"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(24)] <- "Treg"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(12)] <- "NK.1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(29,0,5)] <- "NK.2"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(7,22)] <- "ILC2.0"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(16)] <- "ILC2.1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(19)] <- "ILC2.2"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(31)] <- "BAS"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(18)] <- "EOS"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(1)] <- "NEU.1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(6,2)] <- "NEU.2"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(9,8)] <- "NEU.3"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(17)] <- "pDC"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(30)] <- "cDC1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(25)] <- "cDC2"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(23)] <- "migDC"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(14)] <- "Mono.1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(3)] <- "Mono.2"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(20)] <- "Mono.3"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(15)] <- "IM.1"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(10)] <- "IM.2"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(21)] <- "IM.3"
+
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(27)] <- "AM.0"
+GEX.seur$Anno1[GEX.seur$Anno1 %in% c(4)] <- "AM.1"
+
+GEX.seur$Anno1 <- factor(GEX.seur$Anno1,
+                         levels = c("Bcell","Plasma",
+                                    "CD8T","Th/Tin","Treg",
+                                    paste0("NK.",1:2),
+                                    paste0("ILC2.",0:2),
+                                    "BAS","EOS",
+                                    paste0("NEU.",1:3),
+                                    "pDC","cDC1","cDC2","migDC",
+                                    paste0("Mono.",1:3),
+                                    paste0("IM.",1:3),
+                                    paste0("AM.",0:1)))
+
+
+
+# Anno2
+GEX.seur$Anno2 <- as.character(GEX.seur$seurat_clusters)
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(26,28)] <- "Bcell"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(11,13,24)] <- "Tcell"
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(12,29,0,5)] <- "NK"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(7,22,16,19)] <- "ILC2"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(31)] <- "BAS"
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(18)] <- "EOS"
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(1,6,2,9,8)] <- "NEU"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(17)] <- "pDC"
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(30,25)] <- "cDC"
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(23)] <- "migDC"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(14,3,20)] <- "Mono"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(15,10,21)] <- "IM"
+
+GEX.seur$Anno2[GEX.seur$Anno2 %in% c(27,4)] <- "AM"
+
+GEX.seur$Anno2 <- factor(GEX.seur$Anno2,
+                         levels = c("Bcell",
+                                    "Tcell","NK","ILC2",
+                                    "BAS","EOS","NEU",
+                                    "pDC","cDC","migDC",
+                                    "Mono","IM","AM"))
+
+
+
+```
+
+
+
+```{r}
+levels(GEX.seur$Anno1)
+```
+
+```{r}
+levels(GEX.seur$Anno2)
+```
+
+
+```{r}
+length(levels(GEX.seur$Anno1))
+length(levels(GEX.seur$Anno2))
+```
+
+
+```{r fig.width=11.5,fig.height=4.5}
+pumap1 <- DimPlot(GEX.seur, reduction = "umap", label = T, group.by = "seurat_clusters") +
+  DimPlot(GEX.seur, reduction = "umap", label = F, group.by = "cnt", cols = color.cnt)
+pumap1
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.cluster_cnt.pdf",
+       plot = pumap1,
+       width = 11.5, height = 4.5)
+```
+
+
+```{r}
+GEX.seur$UMAP_1 <- GEX.seur@reductions[['umap']]@cell.embeddings[,1]
+GEX.seur$UMAP_2 <- GEX.seur@reductions[['umap']]@cell.embeddings[,2]
+```
+
+
+```{r fig.width=10.8,fig.height=4.5}
+pumap1s <- DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2") & UMAP_2 >8 ), reduction = "umap", label = T, group.by = "seurat_clusters") +
+  DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2")  & UMAP_2 >8 ), reduction = "umap", label = F, group.by = "cnt", cols = color.cnt)
+pumap1s
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.cluster_cnt.ILC2only.pdf",
+       plot = pumap1s,
+       width = 10.8, height = 4.5)
+```
+
+
+```{r}
+scales::show_col(ggsci::pal_igv("default")(49))
+```
+
+
+```{r}
+scales::show_col(color.pre2)
+```
+
+
+```{r}
+# manually set annotation colors
+color.A1 <-  ggsci::pal_igv("default")(49)[c(2,49,
+                                             3,16,24,        # T
+                                             6,14,           # NK
+                                             7,1,5,          # ILC2
+                                             8,10,            
+                                             15,12,25,       # NEU
+                                             22,
+                                             18,9,           # cDC
+                                             46,
+                                             38,23,42,       # Mono
+                                             4,34,21,        # IM
+                                             43,30           # AM
+                                             )]
+names(color.A1) <- levels(GEX.seur$Anno1)
+
+#
+color.A2 <- c(ggsci::pal_igv("default")(49)[c(2,3,14,7,8,10,12,22,18,46,23,21,30)])
+names(color.A2) <- levels(GEX.seur$Anno2)
+
+
+#write.table(data.frame(ggsci.pal_igv=color.A1),"./figure20240407/1.LUNG_only/color.Anno1.txt",sep = "\t", col.names = T, row.names = T, quote = F)
+#write.table(data.frame(ggsci.pal_igv=color.A2),"./figure20240407/1.LUNG_only/color.Anno2.txt",sep = "\t", col.names = T, row.names = T, quote = F)
+```
+
+
+```{r fig.width=11.8,fig.height=4.5}
+pumap2 <-DimPlot(GEX.seur, reduction = "umap", label = T, repel = T, label.size = 2.5, group.by = "Anno1", cols = color.A1) + 
+  DimPlot(GEX.seur, reduction = "umap", label = T, repel = T, label.size = 3.75, group.by = "Anno2", cols = color.A2)
+pumap2
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.Anno.pdf",
+       plot = pumap2,
+       width = 11.8, height = 4.5)
+```
+
+
+```{r fig.width=11.8,fig.height=4.5}
+pumap2s <-DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2") & UMAP_2 >8 ), 
+                  reduction = "umap", label = T, repel = T, label.size = 3.5, group.by = "Anno1", cols = color.A1) + 
+  DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2") & UMAP_2 >8 ), 
+          reduction = "umap", label = T, repel = T, label.size = 3.75, group.by = "Anno2", cols = color.A2)
+pumap2s
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.Anno.ILC2only.pdf",
+       plot = pumap2s,
+       width = 11.8, height = 4.5)
+```
+
+
+
+
+```{r fig.width=21.5, fig.height=7.5}
+pp.marker.a1 <- DotPlot(GEX.seur, features = check.markers1, group.by = "Anno1",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.marker.a1
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.long.Anno1.pdf",
+       plot = pp.marker.a1,
+       width = 21.8, height = 7.5)
+```
+
+
+
+```{r fig.width=21.5, fig.height=7.5}
+pp.marker.a2 <- DotPlot(GEX.seur, features = check.markers1, group.by = "Anno2",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.marker.a2
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.long.Anno2.pdf",
+       plot = pp.marker.a2,
+       width = 21.8, height = 5.5)
+```
+
+
+
+```{r}
+length(check.markers1)
+```
+
+```{r}
+#write.table(check.markers1,"figure20240407/1.LUNG_only/marker.final/marker.final.long.txt", col.names = F, row.names = F, quote = F)
+```
+
+
+```{r}
+pp.check1 <- list()
+
+for(nn in check.markers1){
+  
+  pp.check1[[nn]] <- FeaturePlot(GEX.seur,features = nn, cols = c("lightgrey","red"))
+  
+  
+}
+```
+
+
+```{r fig.width=12, fig.height=68.75}
+cowplot::plot_grid(plotlist = pp.check1, ncol = 4)
+```
+
+
+```{r}
+length(pp.check1)
+```
+
+```{r eval=FALSE, include=FALSE}
+for(ii in 1:length(pp.check1)){
+  if(ii<=9){
+    jj=paste0("00",ii)
+  }else if(ii<=99){
+    jj=paste0("0",ii)
+  }else{
+    jj=ii
+  }
+  ggsave(paste0("figure20240407/1.LUNG_only/marker.final/feautureplot/featureplot.",
+                jj,
+                ".",
+                check.markers1[ii],
+                ".pdf"),
+         plot = pp.check1[[ii]],
+         width = 3, height = 2.5)
+  
+}
+```
+
+
+#### QC distribution      
+
+```{r fig.height=8, fig.width=18.1, message=FALSE, warning=FALSE}
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2, cols = color.A1,
+        pt.size = 0, group.by = "Anno1") &
+  geom_jitter(alpha=0.15, shape=16, width = 0.3 ,size = 0.12)
+VlnPlot(GEX.seur, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        ncol = 2, cols = color.A1,
+        pt.size = 0, group.by = "Anno1")
+```
+
+
+### Anno markers                         
+
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+Idents(GEX.seur) <- "Anno1"
+
+#GEX.markers.Anno1 <- FindAllMarkers(GEX.seur, only.pos = TRUE, min.pct = 0.05,
+#                                  test.use = "MAST",
+#                                  logfc.threshold = 0.25)
+GEX.markers.Anno1 <- read.table("sc10x_RZB.markers.LUNG_Anno1.0410.csv", header = TRUE, sep = ",")
+#GEX.markers.pre %>% group_by(cluster) %>% top_n(n = 8, wt = avg_log2FC)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+write.table(GEX.markers.Anno1, 
+            "sc10x_RZB.markers.LUNG_Anno1.0410.csv", 
+            col.names = TRUE,
+            row.names = FALSE,
+            quote = F,
+            sep = ",")
+```
+
+
+```{r}
+GEX.markers.Anno1$cluster <- factor(as.character(GEX.markers.Anno1$cluster),
+                          levels = levels(GEX.seur$Anno1))
+
+markers.Anno1_t60 <- (GEX.markers.Anno1 %>% group_by(cluster) %>% 
+                  filter(pct.1>0.05 & gene %in% grep("Rps|Rpl|mt-",GEX.markers.Anno1$gene,invert = T,value = T)) %>%
+                   top_n(n = 60, wt = avg_log2FC) %>%
+                    filter(p_val_adj < 0.01) %>%
+                   ungroup() %>%
+  arrange(desc(avg_log2FC*pct.1),gene) %>%
+                             distinct(gene, .keep_all = TRUE) %>%
+                             arrange(cluster,p_val_adj))$gene
+
+markers.Anno1_t120 <- (GEX.markers.Anno1 %>% group_by(cluster) %>% 
+                  filter(pct.1>0.05 & gene %in% grep("Rps|Rpl|mt-",GEX.markers.Anno1$gene,invert = T,value = T)) %>%
+                   top_n(n = 120, wt = avg_log2FC) %>%
+                    filter(p_val_adj < 0.01) %>%
+                   ungroup() %>%
+  arrange(desc(avg_log2FC*pct.1),gene) %>%
+                             distinct(gene, .keep_all = TRUE) %>%
+                             arrange(cluster,p_val_adj))$gene
+```
+
+
+```{r}
+ttt = 931
+ttt/60
+ttt/64
+ttt/65
+```
+
+
+```{r fig.height=11.4, fig.width=9, message=FALSE, warning=FALSE}
+
+pp.Anno1.t60 <- list()
+
+for(i in 1:16){
+pp.Anno1.t60[[i]] <- DotPlot(GEX.seur, features = rev(markers.Anno1_t60[(60*i-59):(60*i)]))  + coord_flip() + 
+           theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6))
+}
+
+pp.Anno1.t60
+```  
+
+
+
+```{r}
+ttt = 1671
+ttt/60
+ttt/64
+ttt/65
+```
+
+
+```{r fig.height=11.4, fig.width=9, message=FALSE, warning=FALSE}
+
+pp.Anno1.t120 <- list()
+
+for(i in 1:28){
+pp.Anno1.t120[[i]] <- DotPlot(GEX.seur, features = rev(markers.Anno1_t120[(60*i-59):(60*i)]))  + coord_flip() + 
+           theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6))
+}
+
+#pp.Anno1.t120
+``` 
+
+
+
+
+#### final markers           
+          
+          
+short version               
+
+
+```{r eval=FALSE, include=FALSE}
+check.markers2 <- c("Ptprc","Mki67","Top2a",
+                   "Pax5","Ebf1","Cd19",
+                   "Cd81","Sdc1","Jchain",
+                   "Cd3d","Cd8a","Cd8b1",
+                   "Tcf7","Icos","Cd4","Foxp3",
+                   "Klrb1c","Ncr1","Eomes","Nkg7",
+                   "Ccl5","Gzma","Gzmb",
+                   "Gata3","Il1rl1","Ramp1","Areg",
+                   "Klrg1","Il13","Il5","Calca",
+                   "Csf2","Stab2",
+                   
+                   "Il6","Gata2","Cd200r3",
+                   "Serpinb2","Siglecf","Ear6","Ccr3",
+                   "Adgre1","Cd24a","Retnlg",
+                   "Itgam","Cd14","S100a8","S100a9",
+                   "Csf3r","Cxcr2","Mmp9","Hp",
+                   "Mmp8","Ly6g","Csf1","C3",
+                   "Il1a","Icam1","Maff","Tnf",
+                   
+                   "Siglech","Ccr9",
+                   "Ly6c1","Ly6c2",
+                   "P2ry14","Itgae","Xcr1","Clec9a",
+                   "H2-Aa","H2-Eb1","H2-DMa",
+                   "Cd209a","Clec10a",
+                   "Cd86","Ccl17","Ccl22","Ccr7","Fscn1",
+                   "Calcb",
+                   
+                   
+                   "Lyz2","Mafb","Plac8",
+                   "F13a1",
+                   "Ms4a4c","Ahr",
+                   
+                   "Aif1","Csf1r","Gpr141",
+                   
+                   "Cx3cr1","Ace","Adgre4",
+                   "Lilra5","Gngt2",
+                   
+                   "Retnla",
+                   
+                   "Fcrls","Hr",
+                   "C1qa","C1qc",
+                   "Igf1","Ccl7","Il11ra1",
+                   
+                   "Mmp12",
+                   "Itgax","Mrc1","Dab2","F7",
+                   "Car4","Mgll","Krt79","Il18",
+                   "Chil3"
+                   )
+```
+
+
+```{r fig.width=21.5, fig.height=7.6}
+
+
+check.markers2 <- c(
+                   # Bcell
+                   "Ebf1","Cd19","Sdc1","Jchain",
+                   "Cd3d","Cd8a","Cd8b1",
+                   "Tcf7","Icos","Cd4","Foxp3",
+                   "Klrb1c","Ncr1","Eomes",#"Nkg7",
+                   #"Ccl5","Gzma",
+                   "Gzmb",
+                   
+                   # ILC2
+                   "Mki67",
+                   "Gata3","Il1rl1",
+                   #"Ramp1","Areg","Klrg1",
+                   "Il13","Il5","Calca",
+                   "Csf2",#"Stab2",
+                   
+                   "Il6","Gata2","Cd200r3",
+                   "Serpinb2","Siglecf",#"Ear6","Ccr3",
+                   "Adgre1",#"Cd24a",
+                   "Retnlg",
+                   "Itgam","Cd14","S100a8",#"S100a9",
+                   #"Csf3r","Cxcr2",
+                   "Mmp8","Mmp9","Hp",
+                   #"Ly6g","C3","Il1a","Icam1","Maff",
+                   "Csf1","Tnf",
+                   
+                   "Siglech","Ccr9",
+                   #"Ly6c1",
+                   "Ly6c2",
+                   "P2ry14","Itgae","Xcr1","Clec9a",
+                   #"H2-Aa",
+                   "H2-Eb1","H2-DMa","Cd209a","Clec10a",
+                   #"Cd86","Ccl17",
+                   "Ccl22","Ccr7","Fscn1",
+                   #"Calcb",
+                   
+                   
+                   "Lyz2",#"Mafb",
+                   "Plac8","F13a1",
+                   "Ms4a4c",#"Ahr",
+                   
+                   "Aif1","Csf1r","Gpr141",
+                   
+                   "Cx3cr1","Ace","Adgre4",
+                   "Lilra5","Gngt2",
+                   
+                   "Retnla",
+                   
+                   "Fcrls","Hr",
+                   "C1qa",#"C1qc",
+                   "Igf1","Ccl7","Il11ra1",
+                   
+                   "Mmp12",
+                   "Itgax","Mrc1","Dab2","F7",
+                   "Car4"#,"Mgll","Krt79","Il18","Chil3"
+                   
+                   )
+
+```
+
+
+```{r}
+length(check.markers2)
+```
+
+
+
+```{r fig.width=16.5, fig.height=6.4}
+pp.short.Anno1 <- DotPlot(GEX.seur, features = check.markers2, group.by = "Anno1",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.short.Anno1
+```
+
+
+```{r fig.width=16.5, fig.height=4.2}
+pp.short.Anno2 <- DotPlot(GEX.seur, features = check.markers2, group.by = "Anno2",
+        cols = c("midnightblue","darkorange1")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1))+ scale_y_discrete(limits=rev)
+pp.short.Anno2
+```
+
+
+
+```{r}
+## define feature colors
+# Cell2020     
+material.heat = function(n){
+  colorRampPalette(
+    c(
+      "#283593", # indigo 800
+      "#3F51B5", # indigo
+      "#2196F3", # blue
+      "#00BCD4", # cyan
+      "#4CAF50", # green
+      "#8BC34A", # light green
+      "#CDDC39", # lime
+      "#FFEB3B", # yellow
+      "#FFC107", # amber
+      "#FF9800", # orange
+      "#FF5722"  # deep orange
+    )
+  )(n)
+}
+
+# Immunity2019, na gray
+colors.Immunity <-c("#191970","#121285","#0C0C9A","#0707B0","#0101C5","#0014CF","#0033D3","#0053D8","#0072DD","#0092E1","#00B2E6",
+                  "#00D1EB","#23E8CD","#7AF17B","#D2FA29","#FFEB00","#FFC300","#FF9B00","#FF8400","#FF7800","#FF6B00","#FF5F00","#FF5300",
+                  "#FF4700","#F73B00","#EF2E00","#E62300","#DD1700","#D50B00","#CD0000")
+
+
+# NatNeur2021, sc-neurons
+color.ref <- c("#8AB6CE","#678BB1","#3975C1","#4CC1BD",
+               "#C03778","#97BA59","#DFAB16","#BF7E6B",
+               "#D46B35","#BDAE8D","#BD66C4","#2BA956",
+               "#FF8080","#FF8080","#FF8080","#FF0000")
+```
+
+
+
+```{r fig.height=6.4, fig.width=16.5, message=FALSE, warning=FALSE}
+pp.short.Anno1+ 
+  scale_color_gradientn(colours  = material.heat(100))
+```
+
+
+```{r fig.height=4.2, fig.width=16.5, message=FALSE, warning=FALSE}
+pp.short.Anno2+ 
+  scale_color_gradientn(colours  = material.heat(100))
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.long.Anno1.s.pdf",
+       plot = pp.marker.a1+ 
+  scale_color_gradientn(colours  = material.heat(100)),
+       width = 21.8, height = 7.5)
+
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.long.Anno2.s.pdf",
+       plot = pp.marker.a2+ 
+  scale_color_gradientn(colours  = material.heat(100)),
+       width = 21.8, height = 5.5)
+```
+
+
+```{r fig.height=13.4, fig.width=7.2, message=FALSE, warning=FALSE}
+pp.short.Anno1.t <- DotPlot(GEX.seur, features = check.markers2, group.by = "Anno1",
+        cols = c("midnightblue","darkorange1")) +
+  coord_flip() +
+ theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4,size = 9.15))+ 
+  scale_color_gradientn(colours  = material.heat(100))
+  #scale_x_discrete(limits=rev) + scale_y_discrete(limits=rev) + 
+pp.short.Anno1.t
+```
+
+```{r fig.height=13.4, fig.width=4.8, message=FALSE, warning=FALSE}
+pp.short.Anno2.t <- DotPlot(GEX.seur, features = check.markers2, group.by = "Anno2",
+        cols = c("midnightblue","darkorange1")) +
+  coord_flip() +
+ theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4,size = 9.15))+ 
+  scale_color_gradientn(colours  = material.heat(100))
+  #scale_x_discrete(limits=rev) + scale_y_discrete(limits=rev) + 
+pp.short.Anno2.t
+```
+
+```{r}
+#write.table(check.markers2,"figure20240407/1.LUNG_only/marker.final/marker.final.short.txt", col.names = F, row.names = F, quote = F)
+```
+
+```{r eval=FALSE, include=FALSE}
+#
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno1.pdf",
+       plot = pp.short.Anno1,
+       width = 16.8, height = 6.3)
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno1.s.pdf",
+       plot = pp.short.Anno1+ 
+  scale_color_gradientn(colours  = material.heat(100)),
+       width = 16.8, height = 6.3)
+
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno2.pdf",
+       plot = pp.short.Anno2,
+       width = 16.8, height = 4.5)
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno2.s.pdf",
+       plot = pp.short.Anno2+ 
+  scale_color_gradientn(colours  = material.heat(100)),
+       width = 16.8, height = 4.5)
+
+#
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno1.t.pdf",
+       plot = pp.short.Anno1.t,
+       width = 8, height = 14.5)
+
+ggsave("./figure20240407/1.LUNG_only/marker.final/marker.final.short.Anno2.t.pdf",
+       plot = pp.short.Anno2.t,
+       width = 6.4, height = 14.5)
+```
+
+
+
+## cell composition                 
+
+
+```{r  fig.width=7.5, fig.height=6.6}
+pumap3 <- DimPlot(GEX.seur, label = F, pt.size = 0.05, repel = F, reduction = 'umap', group.by = "FB.info", split.by = "FB.info", 
+        ncol = 2, cols = color.FB)
+pumap3
+``` 
+
+
+```{r  fig.width=7.8, fig.height=6.6}
+pumap4 <- DimPlot(GEX.seur, label = F, pt.size = 0.05, repel = F, reduction = 'umap', group.by = "Anno1", split.by = "FB.info", 
+        ncol = 2, cols = color.A1)
+pumap4
+``` 
+
+```{r  fig.width=7.25, fig.height=6.6}
+pumap5 <- DimPlot(GEX.seur, label = F, pt.size = 0.05, repel = F, reduction = 'umap', group.by = "Anno2", split.by = "FB.info", 
+        ncol = 2, cols = color.A2)
+pumap5
+``` 
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.split0.pdf",
+       plot = pumap3,
+       width = 7.5, height = 6.6)
+
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.split1.pdf",
+       plot = pumap4,
+       width = 7.8, height = 6.6)
+
+ggsave("./figure20240407/1.LUNG_only/umap.LUNG.split2.pdf",
+       plot = pumap5,
+       width = 7.25, height = 6.6)
+```
+
+
+
+### stacked bar                  
+
+
+#### Anno1      
+
+
+```{r}
+GEX.seur$cnt <- factor(as.character(GEX.seur$cnt),
+                  levels = c("LUNG.CTL","LUNG.CKO"))
+```
+
+
+```{r}
+stat.A1.a <- table(GEX.seur@meta.data[,c("cnt","Anno1")])
+stat.A1.a
+```
+
+```{r fig.height=6, fig.width=6}
+melt.A1.a <- reshape2::melt(stat.A1.a)
+melt.A1.a$Anno1 <- factor(as.character(melt.A1.a$Anno1),
+                                levels = rev(levels(GEX.seur$Anno1)))
+
+#color.stat1 <- color.pre1
+#names(color.stat1) <- levels(GEX.seur$Anno1)
+
+pstat.A1.a <- ggplot(melt.A1.a, aes(cnt, weight=value, fill=Anno1)) +
+  geom_bar(color="black", width = .7, position = "fill") +
+  labs( y = "Proportion of total (%)",title = "",x="") +
+  scale_fill_manual(values = color.A1[rev(levels(GEX.seur$Anno1))]) +
+  scale_y_continuous(expand = c(0,0), n.breaks = 6, labels = c(0,20,40,60,80,100)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13.6),
+        axis.text.y = element_text(size = 16))+
+  guides(fill = guide_legend(reverse = T, title = ""))
+pstat.A1.a
+```
+
+
+
+```{r}
+stat.A1.b <- table(GEX.seur@meta.data[,c("FB.info","Anno1")])
+stat.A1.b
+```
+
+```{r fig.height=6, fig.width=6}
+melt.A1.b <- reshape2::melt(stat.A1.b)
+melt.A1.b$Anno1 <- factor(as.character(melt.A1.b$Anno1),
+                                levels = rev(levels(GEX.seur$Anno1)))
+
+#color.stat1 <- color.pre1
+#names(color.stat1) <- levels(GEX.seur$Anno1)
+
+pstat.A1.b <- ggplot(melt.A1.b, aes(FB.info, weight=value, fill=Anno1)) +
+  geom_bar(color="black", width = .7, position = "fill") +
+  labs( y = "Proportion of total (%)",title = "",x="") +
+  scale_fill_manual(values = color.A1[rev(levels(GEX.seur$Anno1))]) +
+  scale_y_continuous(expand = c(0,0), n.breaks = 6, labels = c(0,20,40,60,80,100)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13.6),
+        axis.text.y = element_text(size = 16))+
+  guides(fill = guide_legend(reverse = T, title = ""))
+pstat.A1.b
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/Composition/stacked_bar.Anno1.a.pdf",
+       plot = pstat.A1.a,
+       width = 6, height =6)
+ggsave("./figure20240407/1.LUNG_only/Composition/stacked_bar.Anno1.b.pdf",
+       plot = pstat.A1.b,
+       width = 6, height =6)
+```
+
+
+#### Anno2      
+
+
+```{r}
+#GEX.seur$cnt <- factor(as.character(GEX.seur$cnt),
+#                  levels = c("LUNG.CTL","LUNG.CKO"))
+```
+
+
+```{r}
+stat.A2.a <- table(GEX.seur@meta.data[,c("cnt","Anno2")])
+stat.A2.a
+```
+
+```{r fig.height=6, fig.width=6}
+melt.A2.a <- reshape2::melt(stat.A2.a)
+melt.A2.a$Anno2 <- factor(as.character(melt.A2.a$Anno2),
+                                levels = rev(levels(GEX.seur$Anno2)))
+
+#color.stat1 <- color.pre1
+#names(color.stat1) <- levels(GEX.seur$Anno2)
+
+pstat.A2.a <- ggplot(melt.A2.a, aes(cnt, weight=value, fill=Anno2)) +
+  geom_bar(color="black", width = .7, position = "fill") +
+  labs( y = "Proportion of total (%)",title = "",x="") +
+  scale_fill_manual(values = color.A2[rev(levels(GEX.seur$Anno2))]) +
+  scale_y_continuous(expand = c(0,0), n.breaks = 6, labels = c(0,20,40,60,80,100)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13.6),
+        axis.text.y = element_text(size = 16))+
+  guides(fill = guide_legend(reverse = T, title = ""))
+pstat.A2.a
+```
+
+
+
+```{r}
+stat.A2.b <- table(GEX.seur@meta.data[,c("FB.info","Anno2")])
+stat.A2.b
+```
+
+```{r fig.height=6, fig.width=6}
+melt.A2.b <- reshape2::melt(stat.A2.b)
+melt.A2.b$Anno2 <- factor(as.character(melt.A2.b$Anno2),
+                                levels = rev(levels(GEX.seur$Anno2)))
+
+#color.stat1 <- color.pre1
+#names(color.stat1) <- levels(GEX.seur$Anno2)
+
+pstat.A2.b <- ggplot(melt.A2.b, aes(FB.info, weight=value, fill=Anno2)) +
+  geom_bar(color="black", width = .7, position = "fill") +
+  labs( y = "Proportion of total (%)",title = "",x="") +
+  scale_fill_manual(values = color.A2[rev(levels(GEX.seur$Anno2))]) +
+  scale_y_continuous(expand = c(0,0), n.breaks = 6, labels = c(0,20,40,60,80,100)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13.6),
+        axis.text.y = element_text(size = 16))+
+  guides(fill = guide_legend(reverse = T, title = ""))
+pstat.A2.b
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/Composition/stacked_bar.Anno2.a.pdf",
+       plot = pstat.A2.a,
+       width = 6, height =6)
+ggsave("./figure20240407/1.LUNG_only/Composition/stacked_bar.Anno2.b.pdf",
+       plot = pstat.A2.b,
+       width = 6, height =6)
+```
+
+
+
+### heatmap            
+
+
+
+```{r fig.width=9.4, fig.height=4.5}
+cowplot::plot_grid(
+pheatmap::pheatmap(table(FB.info=GEX.seur$FB.info,
+      clusters=GEX.seur$Anno1),
+                   main = "Cell Count",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.0f", legend = F, silent = T)$gtable,
+
+pheatmap::pheatmap(100*rowRatio(table(FB.info=GEX.seur$FB.info,
+                                clusters=GEX.seur$Anno1)),
+                   main = "Cell Ratio",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.1f", legend = F, silent =T)$gtable,
+ncol = 1)
+```
+
+
+```{r fig.width=6.4, fig.height=4.5}
+cowplot::plot_grid(
+pheatmap::pheatmap(table(FB.info=GEX.seur$FB.info,
+      clusters=GEX.seur$Anno2),
+                   main = "Cell Count",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.0f", legend = F, silent = T)$gtable,
+
+pheatmap::pheatmap(100*rowRatio(table(FB.info=GEX.seur$FB.info,
+                                clusters=GEX.seur$Anno2)),
+                   main = "Cell Ratio",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.1f", legend = F, silent =T)$gtable,
+ncol = 1)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#
+pdf("./figure20240407/1.LUNG_only/Composition/pheatmap.Anno1.pdf",
+    width = 9.6, height = 4.5)
+cowplot::plot_grid(
+pheatmap::pheatmap(table(FB.info=GEX.seur$FB.info,
+      clusters=GEX.seur$Anno1),
+                   main = "Cell Count",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.0f", legend = F, silent = T)$gtable,
+
+pheatmap::pheatmap(100*rowRatio(table(FB.info=GEX.seur$FB.info,
+                                clusters=GEX.seur$Anno1)),
+                   main = "Cell Ratio",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.1f", legend = F, silent =T)$gtable,
+ncol = 1)
+dev.off()
+
+#
+pdf("./figure20240407/1.LUNG_only/Composition/pheatmap.Anno2.pdf",
+    width = 6.4, height = 4.5)
+cowplot::plot_grid(
+pheatmap::pheatmap(table(FB.info=GEX.seur$FB.info,
+      clusters=GEX.seur$Anno2),
+                   main = "Cell Count",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.0f", legend = F, silent = T)$gtable,
+
+pheatmap::pheatmap(100*rowRatio(table(FB.info=GEX.seur$FB.info,
+                                clusters=GEX.seur$Anno2)),
+                   main = "Cell Ratio",
+                   gaps_row = c(2),
+      #gaps_col = c(4,7,10),
+                   cluster_rows = F, cluster_cols = F, display_numbers = T, number_format = "%.1f", legend = F, silent =T)$gtable,
+ncol = 1)
+dev.off()
+```
+
+
+### barplot               
+
+
+#### new                    
+
+
+```{r}
+stat_Anno1 <- GEX.seur@meta.data[,c("cnt","rep","Anno1")]
+
+stat_Anno1.s <- stat_Anno1 %>%
+  group_by(cnt,rep,Anno1) %>%
+  summarise(count=n()) %>%
+  mutate(prop= count/sum(count)) %>%
+  ungroup
+```
+
+
+```{r  fig.height=3.5, fig.width=12.5}
+pcom.Anno1 <- stat_Anno1.s %>%
+  ggplot(aes(x = Anno1, y = 100*prop, color=cnt)) +
+  geom_bar(stat="summary", fun="mean", position = position_dodge(0.75), width = 0.58, fill="white") +
+  theme_classic(base_size = 15) +
+  scale_color_manual(values = c(color.cnt), name="") +
+  labs(title="Cell Composition of Lung immune data, Anno1", y = "Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6)) +
+  
+  geom_point(aes(x=Anno1, y = 100*prop, color= cnt),
+             position = position_dodge(0.75),
+             shape=16,alpha=0.75,size=2.15,
+             stroke=0.15, show.legend=F)
+
+pcom.Anno1
+```
+
+
+```{r eval=FALSE, include=FALSE, paged.print=FALSE}
+write.csv(stat_Anno1.s %>% reshape2::recast(cnt + rep ~ Anno1, measure.var = 4), 
+          "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno1.stat_df.count.csv")
+write.csv(stat_Anno1.s %>% reshape2::recast(cnt + rep ~ Anno1, measure.var = 5), 
+          "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno1.stat_df.ratio.csv")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno1.barplot.pdf",
+       plot = pcom.Anno1,
+       width = 12.5, height = 4.5)
+```
+
+
+```{r}
+stat_Anno2 <- GEX.seur@meta.data[,c("cnt","rep","Anno2")]
+
+stat_Anno2.s <- stat_Anno2 %>%
+  group_by(cnt,rep,Anno2) %>%
+  summarise(count=n()) %>%
+  mutate(prop= count/sum(count)) %>%
+  ungroup
+```
+
+
+```{r  fig.height=3.5, fig.width=8.5}
+pcom.Anno2 <- stat_Anno2.s %>%
+  ggplot(aes(x = Anno2, y = 100*prop, color=cnt)) +
+  geom_bar(stat="summary", fun="mean", position = position_dodge(0.75), width = 0.58, fill="white") +
+  theme_classic(base_size = 15) +
+  scale_color_manual(values = c(color.cnt), name="") +
+  labs(title="Cell Composition of Lung immune data, Anno2", y = "Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6)) +
+  
+  geom_point(aes(x=Anno2, y = 100*prop, color= cnt),
+             position = position_dodge(0.75),
+             shape=16,alpha=0.75,size=2.15,
+             stroke=0.15, show.legend=F)
+
+pcom.Anno2
+```
+
+
+```{r eval=FALSE, include=FALSE, paged.print=FALSE}
+write.csv(stat_Anno2.s %>% reshape2::recast(cnt + rep ~ Anno2, measure.var = 4), 
+          "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno2.stat_df.count.csv")
+write.csv(stat_Anno2.s %>% reshape2::recast(cnt + rep ~ Anno2, measure.var = 5), 
+          "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno2.stat_df.ratio.csv")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno2.barplot.pdf",
+       plot = pcom.Anno2,
+       width = 8.5, height = 4.5)
+```
+
+
+#### sig.test                        
+
+
+glm.nb - anova.LRT           
+
+
+```{r message=FALSE, warning=FALSE}
+
+Sort.N <- c("LUNG.CTL","LUNG.CKO")
+
+glm.nb_anova.Anno1 <- list()
+
+for(x1 in 1:2){
+  for(x2 in 1:2){
+    if(x2>x1){
+      
+      stat_Anno1.s_N <- stat_Anno1.s %>% filter(cnt %in% c(Sort.N[x1],Sort.N[x2]))
+      
+      
+      total.N <- stat_Anno1.s_N %>%
+        group_by(cnt, rep) %>%
+        summarise(total=sum(count)) %>% ungroup() %>% as.data.frame()
+      
+      rownames(total.N) <- paste0(as.character(total.N$cnt),
+                                  "_",
+                                  as.character(total.N$rep))
+      
+      stat_Anno1.s_N$total <- total.N[paste0(stat_Anno1.s_N$cnt,
+                                            "_",
+                                            stat_Anno1.s_N$rep),"total"]
+      
+      glm.nb_anova.Anno1[[paste0(Sort.N[x1],"vs",Sort.N[x2])]] <- list()
+      
+      for(AA in levels(GEX.seur$Anno1)){
+        glm.nb_anova.Anno1[[paste0(Sort.N[x1],"vs",Sort.N[x2])]][[AA]] <- tryCatch({
+          aaa <- stat_Anno1.s_N %>% filter(Anno1==AA)
+          aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=1000)
+          aaa.anova <- anova(aaa.glmnb, test = "LRT")
+          aaa.anova$'Pr(>Chi)'[2]
+        }, error=function(e){
+        
+          tryCatch({
+            aaa <- stat_Anno1.s_N %>% filter(Anno1==AA)
+            aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=100)
+            aaa.anova <- anova(aaa.glmnb, test = "LRT")
+            aaa.anova$'Pr(>Chi)'[2]
+          }, error=function(e){
+            
+            tryCatch({
+              aaa <- stat_Anno1.s_N %>% filter(Anno1==AA)
+              aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=10)
+              aaa.anova <- anova(aaa.glmnb, test = "LRT")
+              aaa.anova$'Pr(>Chi)'[2]
+            }, error = function(e){
+              NA
+            })     
+          })
+        })
+      }
+      glm.nb_anova.Anno1[[paste0(Sort.N[x1],"vs",Sort.N[x2])]] <- unlist(glm.nb_anova.Anno1[[paste0(Sort.N[x1],"vs",Sort.N[x2])]]) 
+    }
+  }
+}
+
+
+```
+
+
+```{r}
+glm.nb_anova.Anno1_df1 <- t(data.frame(Reduce(function(x,y){rbind(x,y)},glm.nb_anova.Anno1)))
+rownames(glm.nb_anova.Anno1_df1) <- names(glm.nb_anova.Anno1)
+colnames(glm.nb_anova.Anno1_df1) <- gsub("X","C",colnames(glm.nb_anova.Anno1_df1))
+glm.nb_anova.Anno1_df1
+```
+
+
+```{r}
+round(glm.nb_anova.Anno1_df1,4)
+```
+
+```{r eval=FALSE, include=FALSE}
+write.csv(glm.nb_anova.Anno1_df1, "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno1.glm.nb_anova.LRT.csv")
+```
+
+
+```{r message=FALSE, warning=FALSE}
+
+Sort.N <- c("LUNG.CTL","LUNG.CKO")
+
+glm.nb_anova.Anno2 <- list()
+
+for(x1 in 1:2){
+  for(x2 in 1:2){
+    if(x2>x1){
+      
+      stat_Anno2.s_N <- stat_Anno2.s %>% filter(cnt %in% c(Sort.N[x1],Sort.N[x2]))
+      
+      
+      total.N <- stat_Anno2.s_N %>%
+        group_by(cnt, rep) %>%
+        summarise(total=sum(count)) %>% ungroup() %>% as.data.frame()
+      
+      rownames(total.N) <- paste0(as.character(total.N$cnt),
+                                  "_",
+                                  as.character(total.N$rep))
+      
+      stat_Anno2.s_N$total <- total.N[paste0(stat_Anno2.s_N$cnt,
+                                            "_",
+                                            stat_Anno2.s_N$rep),"total"]
+      
+      glm.nb_anova.Anno2[[paste0(Sort.N[x1],"vs",Sort.N[x2])]] <- list()
+      
+      for(AA in levels(GEX.seur$Anno2)){
+        glm.nb_anova.Anno2[[paste0(Sort.N[x1],"vs",Sort.N[x2])]][[AA]] <- tryCatch({
+          aaa <- stat_Anno2.s_N %>% filter(Anno2==AA)
+          aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=1000)
+          aaa.anova <- anova(aaa.glmnb, test = "LRT")
+          aaa.anova$'Pr(>Chi)'[2]
+        }, error=function(e){
+        
+          tryCatch({
+            aaa <- stat_Anno2.s_N %>% filter(Anno2==AA)
+            aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=100)
+            aaa.anova <- anova(aaa.glmnb, test = "LRT")
+            aaa.anova$'Pr(>Chi)'[2]
+          }, error=function(e){
+            
+            tryCatch({
+              aaa <- stat_Anno2.s_N %>% filter(Anno2==AA)
+              aaa.glmnb <- MASS::glm.nb(count ~ cnt + offset(log(total)), data = aaa, maxit=10)
+              aaa.anova <- anova(aaa.glmnb, test = "LRT")
+              aaa.anova$'Pr(>Chi)'[2]
+            }, error = function(e){
+              NA
+            })     
+          })
+        })
+      }
+      glm.nb_anova.Anno2[[paste0(Sort.N[x1],"vs",Sort.N[x2])]] <- unlist(glm.nb_anova.Anno2[[paste0(Sort.N[x1],"vs",Sort.N[x2])]]) 
+    }
+  }
+}
+
+
+```
+
+
+```{r}
+glm.nb_anova.Anno2_df1 <- t(data.frame(Reduce(function(x,y){rbind(x,y)},glm.nb_anova.Anno2)))
+rownames(glm.nb_anova.Anno2_df1) <- names(glm.nb_anova.Anno2)
+colnames(glm.nb_anova.Anno2_df1) <- gsub("X","C",colnames(glm.nb_anova.Anno2_df1))
+glm.nb_anova.Anno2_df1
+```
+
+
+```{r}
+round(glm.nb_anova.Anno2_df1,4)
+```
+
+```{r eval=FALSE, include=FALSE}
+write.csv(glm.nb_anova.Anno2_df1, "figure20240407/1.LUNG_only/Composition/LUNG.composition_Anno2.glm.nb_anova.LRT.csv")
+```
+
+
+
+
+## set contrast              
+
+set contrast for parallel comparisons                 
+
+```{r}
+levels(GEX.seur$Anno1)
+```
+
+```{r}
+levels(GEX.seur$Anno2)
+```
+
+
+```{r}
+levels(GEX.seur$cnt)
+```
+
+
+### cnt1           
+                
+                
+```{r}
+level.cnt1 <- as.vector(sapply(levels(GEX.seur$Anno1),function(x){
+  paste0(x,c(".CTL",".CKO"))
+}))
+level.cnt1
+```
+      
+```{r}
+# for violin comparison
+list.cnt1 <- lapply(levels(GEX.seur$Anno1),function(x){
+  paste0(x,c(".CTL",".CKO"))
+})
+list.cnt1
+```         
+                   
+  
+```{r}
+GEX.seur$cnt1 <- factor(paste0(as.character(GEX.seur$Anno1),
+                               ".",
+                               gsub("LUNG.","",as.character(GEX.seur$cnt))),
+                        levels = level.cnt1)
+```
+                   
+                   
+                        
+### cnt2               
+                   
+                        
+```{r}
+level.cnt2 <- as.vector(sapply(levels(GEX.seur$Anno2),function(x){
+  paste0(x,c(".CTL",".CKO"))
+}))
+level.cnt2
+```
+                
+```{r}
+# for violin comparison
+list.cnt2 <- lapply(levels(GEX.seur$Anno2),function(x){
+  paste0(x,c(".CTL",".CKO"))
+})
+list.cnt2
+```
+                 
+```{r}
+GEX.seur$cnt2 <- factor(paste0(as.character(GEX.seur$Anno2),
+                               ".",
+                               gsub("LUNG.","",as.character(GEX.seur$cnt))),
+                        levels = level.cnt2)
+```                 
+                      
+                  
+                 
+## DEGs                        
+                     
+                       
+```{r paged.print=FALSE}
+GEX.seur@meta.data[,grep("snn|pANN",colnames(GEX.seur@meta.data))] <- NULL
+head(GEX.seur@meta.data)
+```
+
+```{r}
+#saveRDS(GEX.seur, "./sc10x_RZB.LUNG_Anno.rds")
+#GEX.seur <- readRDS("./sc10x_RZB.LUNG_Anno.rds")
+```
+
+
+
+```{r}
+Idents(GEX.seur) <- "cnt"
+```
+
+
+### Anno1              
+
+```{r}
+all.Anno1 <- levels(GEX.seur$Anno1)
+all.Anno1
+```
+
+
+```{r}
+#
+list_new.Anno1 <- list()
+list_new.Anno1[["All"]] <- all.Anno1
+
+for(NN in all.Anno1){
+  list_new.Anno1[[NN]] <- NN
+}
+
+names_new.Anno1 <- names(list_new.Anno1)
+list_new.Anno1
+```
+
+#### run                    
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+test.DEGs_Anno1 <- list()
+
+for(nn in names_new.Anno1){
+  test.DEGs_Anno1[[nn]] <- FindAllMarkers(subset(GEX.seur, subset = Anno1 %in% list_new.Anno1[[nn]]),
+                                       assay = "RNA",
+                                       only.pos = T,
+                                       min.pct = 0.05,
+                                       logfc.threshold = 0.1,
+                                       test.use = "MAST")
+}
+
+```
+
+
+
+```{r}
+# save DEGs' table
+df_test.DEGs_Anno1 <- data.frame()
+for(nn in names_new.Anno1){
+  df_test.DEGs_Anno1 <- rbind(df_test.DEGs_Anno1, data.frame(test.DEGs_Anno1[[nn]],Anno1=nn))
+}
+
+#write.csv(df_test.DEGs_Anno1, "sc10x_RZB.LUNG_DEGs.CTLvsCKO.Anno1.csv")
+```
+
+
+
+#### stat             
+
+
+```{r}
+df_test.DEGs_Anno1$Anno1 <- factor(as.character(df_test.DEGs_Anno1$Anno1),
+                                   levels = names_new.Anno1)
+```
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+cut.padj = 0.05
+cut.log2FC = 0.1   
+#cut.log2FC = log2(1.5)   
+#cut.log2FC = log2(2)  
+
+cut.pct1 = 0.05
+
+stat_test.DEGs_Anno1 <- df_test.DEGs_Anno1 %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(Anno1,cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame()
+stat_test.DEGs_Anno1
+```
+
+
+```{r  message=FALSE, warning=FALSE, paged.print=FALSE, fig.width=9.5, fig.height=4}
+cut.padj = 0.05
+cut.log2FC = 0.1   
+#cut.log2FC = log2(1.5) 
+#cut.log2FC = log2(2)
+  
+cut.pct1 = 0.05
+
+stat_test.DEGs_Anno1.barplot <- df_test.DEGs_Anno1 %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(Anno1,cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame() %>%
+  ggplot(aes(x=Anno1, y=up.DEGs, color = cluster)) +
+  geom_bar(stat="summary", fun="mean", position = position_dodge(0.75), width = 0.58, fill="white") +
+  geom_text(aes(label = up.DEGs),vjust=-0.21, show.legend = F, position = position_dodge(0.75) ) +
+  theme_classic(base_size = 15) +
+  scale_color_manual(values = color.cnt, name="") +
+  labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |log2FC|>",cut.log2FC), y = "Count") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>1.5"), y = "Count") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>2"), y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6),
+        title =element_text(size=12, face='bold'))
+
+
+
+stat_test.DEGs_Anno1.barplot
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#write.csv(stat_test.DEGs_Anno1,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_log2FC0.1.csv")
+#write.csv(stat_test.DEGs_Anno1,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_FC1.5.csv")
+#write.csv(stat_test.DEGs_Anno1,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_FC2.csv")
+
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_log2FC0.1.pdf",
+#       plot = stat_test.DEGs_Anno1.barplot,
+#       width = 9.5, height = 4)
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_FC1.5.pdf",
+#       plot = stat_test.DEGs_Anno1.barplot,
+#       width = 9.5, height = 4)
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno1.pct0.05_padj0.05_FC2.pdf",
+#       plot = stat_test.DEGs_Anno1.barplot,
+#       width = 9.5, height = 4)
+
+```
+
+
+
+### Anno1 plot   
+
+
+```{r}
+pp_test.DEGs.Anno1 <- lapply(list_new.Anno1, function(x){NA})
+```
+
+
+```{r}
+#
+test.DEGs_Anno1.combine <- test.DEGs_Anno1
+test.DEGs_Anno1.combine <- lapply(test.DEGs_Anno1.combine, function(x){
+  x[x$cluster=="LUNG.CTL","avg_log2FC"] <- -x[x$cluster=="LUNG.CTL","avg_log2FC"]
+  x
+})
+
+```
+
+
+#### plot            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$All <- test.DEGs_Anno1.combine$All %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="All LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$All
+```
+
+
+those All-DEGs enriched in low FC, log2FC 0.2 should filter out most of them                      
+Hsp- and Rpl29 might should be ignored       
+
+
+#### Plasma            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$Plasma <- test.DEGs_Anno1.combine$Plasma %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Plasma LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$Plasma
+```
+
+
+#### NK.2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$NK.2 <- test.DEGs_Anno1.combine$NK.2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="NK.2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$NK.2
+```
+
+
+#### ILC2.0            
+           
+ILC2: only CKO-gene Hilpda significant, no other similar level DEGs                  
+(Fam71f2 should be an artifact caused by CRE-event, which was tested in bulk data)           
+      
+           
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$ILC2.0 <- test.DEGs_Anno1.combine$ILC2.0 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2.0 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$ILC2.0
+```
+
+
+#### ILC2.1            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$ILC2.1 <- test.DEGs_Anno1.combine$ILC2.1 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2.1 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$ILC2.1
+```
+
+
+#### ILC2.2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$ILC2.2 <- test.DEGs_Anno1.combine$ILC2.2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2.2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$ILC2.2
+```
+
+
+#### NEU.2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$NEU.2 <- test.DEGs_Anno1.combine$NEU.2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="NEU.2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$NEU.2
+```
+
+
+#### pDC            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$pDC <- test.DEGs_Anno1.combine$pDC %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="pDC LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$pDC
+```
+
+
+#### cDC1            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$cDC1 <- test.DEGs_Anno1.combine$cDC1 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="cDC1 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$cDC1
+```
+
+
+#### cDC2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$cDC2 <- test.DEGs_Anno1.combine$cDC2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="cDC2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$cDC2
+```
+
+
+#### Mono.2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$Mono.2 <- test.DEGs_Anno1.combine$Mono.2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Mono.2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$Mono.2
+```
+
+
+#### Mono.3            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$Mono.3 <- test.DEGs_Anno1.combine$Mono.3 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Mono.3 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$Mono.3
+```
+
+
+#### AM.1            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno1$AM.1 <- test.DEGs_Anno1.combine$AM.1 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="AM.1 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno1$AM.1
+```
+
+```{r eval=FALSE, include=FALSE}
+for(nn in c("All","NK.2","ILC2.0","ILC2.1","ILC2.2","NEU.2","cDC1","cDC2","Mono.2","Mono.3","AM.1") ){
+  ggsave(paste0("figure20240407/1.LUNG_only/DEGs/volcano_Anno1/valcaono_Anno1.LUNG_CTLvsCKO.",nn,".pdf"),
+         plot = pp_test.DEGs.Anno1[[nn]],
+         width = 15,height = 7.5)
+}
+```
+
+
+
+### Anno2              
+
+```{r}
+all.Anno2 <- levels(GEX.seur$Anno2)
+all.Anno2
+```
+
+
+```{r}
+#
+list_new.Anno2 <- list()
+list_new.Anno2[["All"]] <- all.Anno2
+
+for(NN in all.Anno2){
+  list_new.Anno2[[NN]] <- NN
+}
+
+names_new.Anno2 <- names(list_new.Anno2)
+list_new.Anno2
+```
+
+
+#### run                    
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+test.DEGs_Anno2 <- list()
+
+for(nn in names_new.Anno2){
+  test.DEGs_Anno2[[nn]] <- FindAllMarkers(subset(GEX.seur, subset = Anno2 %in% list_new.Anno2[[nn]]),
+                                       assay = "RNA",
+                                       only.pos = T,
+                                       min.pct = 0.05,
+                                       logfc.threshold = 0.1,
+                                       test.use = "MAST")
+}
+
+```
+
+
+
+```{r}
+# save DEGs' table
+df_test.DEGs_Anno2 <- data.frame()
+for(nn in names_new.Anno2){
+  df_test.DEGs_Anno2 <- rbind(df_test.DEGs_Anno2, data.frame(test.DEGs_Anno2[[nn]],Anno2=nn))
+}
+
+#write.csv(df_test.DEGs_Anno2, "sc10x_RZB.LUNG_DEGs.CTLvsCKO.Anno2.csv")
+```
+
+
+
+#### stat             
+
+
+```{r}
+df_test.DEGs_Anno2$Anno2 <- factor(as.character(df_test.DEGs_Anno2$Anno2),
+                                   levels = names_new.Anno2)
+```
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+cut.padj = 0.05
+cut.log2FC = 0.1   
+#cut.log2FC = log2(1.5)  
+#cut.log2FC = log2(2) 
+  
+cut.pct1 = 0.05
+
+stat_test.DEGs_Anno2 <- df_test.DEGs_Anno2 %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(Anno2,cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame()
+stat_test.DEGs_Anno2
+```
+
+
+```{r  message=FALSE, warning=FALSE, paged.print=FALSE, fig.width=9.5, fig.height=4}
+cut.padj = 0.05
+cut.log2FC = 0.1   
+#cut.log2FC = log2(1.5)  
+#cut.log2FC = log2(2) 
+
+cut.pct1 = 0.05
+
+stat_test.DEGs_Anno2.barplot <- df_test.DEGs_Anno2 %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(Anno2,cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame() %>%
+  ggplot(aes(x=Anno2, y=up.DEGs, color = cluster)) +
+  geom_bar(stat="summary", fun="mean", position = position_dodge(0.75), width = 0.58, fill="white") +
+  geom_text(aes(label = up.DEGs),vjust=-0.21, show.legend = F, position = position_dodge(0.75) ) +
+  theme_classic(base_size = 15) +
+  scale_color_manual(values = color.cnt, name="") +
+  labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |log2FC|>",cut.log2FC), y = "Count") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>1.5"), y = "Count") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>2"), y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6),
+        title =element_text(size=12, face='bold'))
+
+
+
+stat_test.DEGs_Anno2.barplot
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#write.csv(stat_test.DEGs_Anno2,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_log2FC0.1.csv")
+#write.csv(stat_test.DEGs_Anno2,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_FC1.5.csv")
+#write.csv(stat_test.DEGs_Anno2,"figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_FC2.csv")
+
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_log2FC0.1.pdf",
+#       plot = stat_test.DEGs_Anno2.barplot,
+#       width = 9.5, height = 4)
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_FC1.5.pdf",
+#       plot = stat_test.DEGs_Anno2.barplot,
+#       width = 9.5, height = 4)
+#ggsave("figure20240407/1.LUNG_only/DEGs/stat_DEGs.LUNG_CTLvsCKO.Anno2.pct0.05_padj0.05_FC2.pdf",
+#       plot = stat_test.DEGs_Anno2.barplot,
+#       width = 9.5, height = 4)
+
+
+```
+
+
+
+
+### Anno2 plot   
+
+
+
+```{r}
+pp_test.DEGs.Anno2 <- lapply(list_new.Anno2, function(x){NA})
+```
+
+
+```{r}
+#
+test.DEGs_Anno2.combine <- test.DEGs_Anno2
+test.DEGs_Anno2.combine <- lapply(test.DEGs_Anno2.combine, function(x){
+  x[x$cluster=="LUNG.CTL","avg_log2FC"] <- -x[x$cluster=="LUNG.CTL","avg_log2FC"]
+  x
+})
+
+```
+
+
+#### All            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$All <- test.DEGs_Anno2.combine$All %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="All LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$All
+```
+
+
+#### Bcell            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$Bcell <- test.DEGs_Anno2.combine$Bcell %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Bcell LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$Bcell
+```
+
+
+#### Tcell            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$Tcell <- test.DEGs_Anno2.combine$Tcell %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.05)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Tcell LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$Tcell
+```
+
+
+#### NK            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$NK <- test.DEGs_Anno2.combine$NK %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="NK LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$NK
+```
+
+
+
+
+#### ILC2            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$ILC2 <- test.DEGs_Anno2.combine$ILC2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.05)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$ILC2
+```
+
+
+##### some few ILC2 markers like Il13/Il5/Areg that up-regulated in CKO should be further tested !                       
+
+
+
+#### NEU            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$NEU <- test.DEGs_Anno2.combine$NEU %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="NEU LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$NEU
+```
+
+
+#### pDC            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$pDC <- test.DEGs_Anno2.combine$pDC %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="pDC LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$pDC
+```
+
+
+#### cDC            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$cDC <- test.DEGs_Anno2.combine$cDC %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="cDC LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$cDC
+```
+
+
+#### migDC            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$migDC <- test.DEGs_Anno2.combine$migDC %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="migDC LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$migDC
+```
+
+
+#### Mono            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$Mono <- test.DEGs_Anno2.combine$Mono %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="Mono LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$Mono
+```
+
+
+#### IM            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$IM <- test.DEGs_Anno2.combine$IM %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="IM LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$IM
+```
+
+
+#### AM            
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2$AM <- test.DEGs_Anno2.combine$AM %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC<0) | (p_val_adj < 1e-15 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.35)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="AM LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_test.DEGs.Anno2$AM
+```
+
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2_modILC2 <- test.DEGs_Anno2.combine$ILC2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC< -log2(1.5)) | (p_val_adj < 1e-15 & avg_log2FC>log2(1.5)) | (p_val_adj < 0.05 & abs(avg_log2FC) > log2(1.5))) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")+
+  geom_vline(xintercept = c(-log2(1.5),log2(1.5)), linetype="dotted")
+pp_test.DEGs.Anno2_modILC2
+```
+
+##### some few ILC2 markers like Il13/Il5/Areg that up-regulated in CKO should be further tested !        
+
+
+
+```{r fig.width=15, fig.height=7.5}
+pp_test.DEGs.Anno2_moddILC2 <- test.DEGs_Anno2.combine$ILC2 %>%
+  mutate(label=ifelse(((p_val_adj < 1e-18 & avg_log2FC< -log2(1.5)) | (p_val_adj < 1e-15 & avg_log2FC>log2(1.5)) | (p_val_adj < 0.05 & abs(avg_log2FC) > log2(2))) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"LUNG.CTL",ifelse(p_val_adj<0.05 & avg_log2FC>0,"LUNG.CKO","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("LUNG.CTL"=color.cnt[1],
+                               "LUNG.CKO"=color.cnt[2],
+                               "None"="grey")) +
+  theme_classic() + labs(title="ILC2 LUNG.CTL vs LUNG.CTL") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")+
+  geom_vline(xintercept = c(-log2(2),log2(2)), linetype="dotted")
+pp_test.DEGs.Anno2_moddILC2
+```
+
+
+(FC2 is a quite large value which is not often used for scRNAseq data.)           
+
+
+```{r eval=FALSE, include=FALSE}
+for(nn in setdiff(names(pp_test.DEGs.Anno2),c("BAS","EOS") )){
+  ggsave(paste0("figure20240407/1.LUNG_only/DEGs/volcano_Anno2/valcaono_Anno2.LUNG_CTLvsCKO.",nn,".pdf"),
+         plot = pp_test.DEGs.Anno2[[nn]],
+         width = 15,height = 7.5)
+}
+
+
+ggsave(paste0("figure20240407/1.LUNG_only/DEGs/volcano_Anno2/valcaono_Anno2.LUNG_CTLvsCKO.","ILC2_mod_FC1.5",".pdf"),
+         plot = pp_test.DEGs.Anno2_modILC2,
+         width = 15,height = 7.5)
+
+ggsave(paste0("figure20240407/1.LUNG_only/DEGs/volcano_Anno2/valcaono_Anno2.LUNG_CTLvsCKO.","ILC2_mod_FC2",".pdf"),
+         plot = pp_test.DEGs.Anno2_moddILC2,
+         width = 15,height = 7.5)
+```
+
+
+
+## DEGs violin                
+
+
+### ILC2                  
+
+
+```{r}
+DEG.list.ILC2 <- list(CTL= (test.DEGs_Anno2$ILC2 %>% filter(cluster == "LUNG.CTL" & p_val_adj<0.05))$gene,
+                      CKO= (test.DEGs_Anno2$ILC2 %>% filter(cluster == "LUNG.CKO" & p_val_adj<0.05))$gene)
+DEG.list.ILC2
+```
+
+```{r}
+lapply(DEG.list.ILC2, length)
+```
+
+
+```{r}
+pp.vln.ILC2 <- list()
+```
+
+
+```{r}
+for(nn in c(DEG.list.ILC2$CTL,DEG.list.ILC2$CKO)){
+  
+  pp.vln.ILC2[[nn]] <- VlnPlot(subset(GEX.seur, subset= Anno2 %in% c("ILC2")), features = nn, group.by = "cnt", cols = color.cnt, pt.size = 0) +
+    NoLegend() &
+    geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+    stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(2),
+                               size=2.75
+                               )
+  
+}
+```
+
+
+```{r fig.height=4, fig.width=4, message=FALSE, warning=FALSE}
+#pp.vln.ILC2
+```
+
+
+```{r eval=FALSE, include=FALSE}
+for(ii in 1:length(DEG.list.ILC2$CTL)){
+  
+  if(ii<=9){
+    jj=paste0("0",ii)
+  }else{
+    jj=ii
+  }
+  
+  ggsave(paste0("./figure20240407/1.LUNG_only/DEGs/violin.ILC2/ILC2_only.check_DEGs.CTLup_",jj,".",DEG.list.ILC2$CTL[ii],".pdf"),
+         plot = pp.vln.ILC2[[DEG.list.ILC2$CTL[ii]]],
+         width = 3.5, height = 4)
+  
+}
+
+for(ii in 1:length(DEG.list.ILC2$CKO)){
+  
+  if(ii<=9){
+    jj=paste0("0",ii)
+  }else{
+    jj=ii
+  }
+  
+  ggsave(paste0("./figure20240407/1.LUNG_only/DEGs/violin.ILC2/ILC2_only.check_DEGs.CKOup_",jj,".",DEG.list.ILC2$CTL[ii],".pdf"),
+         plot = pp.vln.ILC2[[DEG.list.ILC2$CKO[ii]]],
+         width = 3.5, height = 4)
+  
+}
+```
+
+
+
+```{r fig.height=13.5, fig.width=14.8, message=FALSE, warning=FALSE}
+cowplot::plot_grid(
+  plotlist = pp.vln.ILC2,
+  ncol = 6
+)
+```
+
+
+### NEU                  
+
+
+```{r}
+DEG.list.NEU <- list(CTL= (test.DEGs_Anno2$NEU %>% filter(cluster == "LUNG.CTL" & p_val_adj<0.05))$gene,
+                      CKO= (test.DEGs_Anno2$NEU %>% filter(cluster == "LUNG.CKO" & p_val_adj<0.05))$gene)
+DEG.list.NEU
+```
+
+```{r}
+lapply(DEG.list.NEU, length)
+```
+
+
+```{r}
+pp.vln.NEU <- list()
+```
+
+
+```{r}
+for(nn in c(DEG.list.NEU$CTL,DEG.list.NEU$CKO)){
+  
+  pp.vln.NEU[[nn]] <- VlnPlot(subset(GEX.seur, subset= Anno2 %in% c("NEU")), features = nn, group.by = "cnt", cols = color.cnt, pt.size = 0) +
+    NoLegend() &
+    geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+    stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(2),
+                               size=2.75
+                               )
+  
+}
+```
+
+
+```{r fig.height=4, fig.width=4, message=FALSE, warning=FALSE}
+#pp.vln.NEU
+```
+
+
+```{r eval=FALSE, include=FALSE}
+for(ii in 1:length(DEG.list.NEU$CTL)){
+  
+  if(ii<=9){
+    jj=paste0("0",ii)
+  }else{
+    jj=ii
+  }
+  
+  ggsave(paste0("./figure20240407/1.LUNG_only/DEGs/violin.NEU/NEU_only.check_DEGs.CTLup_",jj,".",DEG.list.NEU$CTL[ii],".pdf"),
+         plot = pp.vln.NEU[[DEG.list.NEU$CTL[ii]]],
+         width = 3.5, height = 4)
+  
+}
+
+for(ii in 1:length(DEG.list.NEU$CKO)){
+  
+  if(ii<=9){
+    jj=paste0("0",ii)
+  }else{
+    jj=ii
+  }
+  
+  ggsave(paste0("./figure20240407/1.LUNG_only/DEGs/violin.NEU/NEU_only.check_DEGs.CKOup_",jj,".",DEG.list.NEU$CTL[ii],".pdf"),
+         plot = pp.vln.NEU[[DEG.list.NEU$CKO[ii]]],
+         width = 3.5, height = 4)
+  
+}
+```
+
+
+
+```{r fig.height=13.5, fig.width=12.8, message=FALSE, warning=FALSE}
+cowplot::plot_grid(
+  plotlist = pp.vln.NEU,
+  ncol = 5
+)
+```
+
+
+
+## sig.score                   
+           
+### bulk DEGs                 
+           
+             
+```{r}
+bulk.table <- read.csv("./bulk.result/Table S1_DEGs.edgeR 1hr_revised.csv")
+colnames(bulk.table)[1] <- "Gene.ID"
+bulk.table[1:5,]
+```
+
+
+```{r}
+dim(bulk.table)
+```
+
+```{r}
+table(bulk.table$upregulated.condition)
+```
+
+
+```{r}
+table((bulk.table %>% filter(padj<0.001))$upregulated.condition)
+```
+
+
+```{r}
+(bulk.table %>% filter(log2FoldChange>0))[1:10,]
+```
+
+```{r}
+range(bulk.table$padj)
+```
+
+
+```{r}
+GEX.seur <- add_geneset_score(GEX.seur, 
+                              geneset = (bulk.table %>% filter(upregulated.condition=="control s.n."))$Gene.ID,
+                              setname = "CTL.s.n.up")
+```
+
+```{r}
+GEX.seur <- add_geneset_score(GEX.seur, 
+                              geneset = (bulk.table %>% filter(upregulated.condition=="ILC2 s.n."))$Gene.ID,
+                              setname = "ILC2.s.n.up")
+```
+
+
+```{r}
+VlnPlot(GEX.seur, features = "CTL.s.n.up", group.by = "Anno2", split.by = "cnt", cols = color.cnt) + labs(x="All")
+```
+
+
+```{r}
+VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "CTL.s.n.up", group.by = "Anno1", split.by = "cnt", cols = color.cnt) + labs(x="NEU only")
+```
+
+
+```{r}
+VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "ILC2.s.n.up", group.by = "Anno1", split.by = "cnt", cols = color.cnt) + labs(x="NEU only")
+```
+
+
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.a <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "ILC2.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+pscore.a
+```
+
+
+```{r fig.height=4, fig.width=12.6, message=FALSE, warning=FALSE}
+
+pscore.a1 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.1")), features = "ILC2.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.1 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+pscore.a2 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.2")), features = "ILC2.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+pscore.a3 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.3")), features = "ILC2.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.3 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+cowplot::plot_grid(
+  pscore.a,
+  pscore.a1,
+  pscore.a2,
+  pscore.a3,
+ncol = 4)
+```
+    
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.b <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "CTL.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.15),
+                               size=2.75
+                               )
+pscore.b
+```
+
+
+```{r fig.height=4, fig.width=12.6, message=FALSE, warning=FALSE}
+pscore.b1 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.1")), features = "CTL.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.1 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.10),
+                               size=2.75
+                               )
+
+pscore.b2 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.2")), features = "CTL.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.09),
+                               size=2.75
+                               )
+
+pscore.b3 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.3")), features = "CTL.s.n.up", group.by = "cnt", cols = color.cnt) + labs(x="NEU.3 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.10),
+                               size=2.75
+                               )
+
+cowplot::plot_grid(
+  pscore.b,
+  pscore.b1,
+  pscore.b2,
+  pscore.b3,
+ncol = 4)
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+pdf("figure20240407/1.LUNG_only/sig.score/bulk.DEGs/signature.score.bulkDEGs.padj0.01,FC2.pdf",
+    width = 12,height = 7.5)
+cowplot::plot_grid(
+  pscore.a,
+  pscore.a1,
+  pscore.a2,
+  pscore.a3,
+  pscore.b,
+  pscore.b1,
+  pscore.b2,
+  pscore.b3,
+ncol = 4)
+
+dev.off()
+```
+
+
+
+
+
+```{r}
+GEX.seur <- add_geneset_score(GEX.seur, 
+                              geneset = (bulk.table %>% filter(upregulated.condition=="control s.n." & padj < 0.001))$Gene.ID,
+                              setname = "CTL.s.n.up.p0.001")
+```
+
+```{r}
+GEX.seur <- add_geneset_score(GEX.seur, 
+                              geneset = (bulk.table %>% filter(upregulated.condition=="ILC2 s.n." & padj < 0.001))$Gene.ID,
+                              setname = "ILC2.s.n.up.p0.001")
+```
+
+
+```{r}
+VlnPlot(GEX.seur, features = "CTL.s.n.up.p0.001", group.by = "Anno2", split.by = "cnt", cols = color.cnt) + labs(x="All")
+```
+
+
+```{r}
+VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "CTL.s.n.up.p0.001", group.by = "Anno1", split.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU only")
+```
+
+
+```{r}
+VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "ILC2.s.n.up.p0.001", group.by = "Anno1", split.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU only")
+```
+
+
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.aa <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "ILC2.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+pscore.aa
+```
+
+
+```{r fig.height=4, fig.width=12.6, message=FALSE, warning=FALSE}
+
+pscore.aa1 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.1")), features = "ILC2.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.1 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+pscore.aa2 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.2")), features = "ILC2.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+pscore.aa3 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.3")), features = "ILC2.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.3 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.45),
+                               size=2.75
+                               )
+
+cowplot::plot_grid(
+  pscore.aa,
+  pscore.aa1,
+  pscore.aa2,
+  pscore.aa3,
+ncol = 4)
+```
+    
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.bb <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "CTL.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.15),
+                               size=2.75
+                               )
+pscore.bb
+```
+
+
+```{r fig.height=4, fig.width=12.6, message=FALSE, warning=FALSE}
+pscore.bb1 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.1")), features = "CTL.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.1 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.10),
+                               size=2.75
+                               )
+
+pscore.bb2 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.2")), features = "CTL.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.09),
+                               size=2.75
+                               )
+
+pscore.bb3 <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("NEU.3")), features = "CTL.s.n.up.p0.001", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU.3 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.10),
+                               size=2.75
+                               )
+
+cowplot::plot_grid(
+  pscore.bb,
+  pscore.bb1,
+  pscore.bb2,
+  pscore.bb3,
+ncol = 4)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+pdf("figure20240407/1.LUNG_only/sig.score/bulk.DEGs/signature.score.bulkDEGs.padj0.001,FC2.pdf",
+    width = 12,height = 7.5)
+cowplot::plot_grid(
+  pscore.aa,
+  pscore.aa1,
+  pscore.aa2,
+  pscore.aa3,
+  pscore.bb,
+  pscore.bb1,
+  pscore.bb2,
+  pscore.bb3,
+ncol = 4)
+
+dev.off()
+```
+
+
+
+### cycling                   
+
+
+```{r}
+CC_gene <- Hmisc::capitalize(tolower(as.vector(unlist(cc.genes.updated.2019))))
+CC_gene
+```
+
+
+```{r}
+
+GEX.seur <- add_geneset_score(GEX.seur, 
+                              geneset = CC_gene,
+                              setname = "score.Cycling")
+```
+
+
+```{r fig.width=6.9, fig.height=4}
+VlnPlot(GEX.seur, features = "score.Cycling", group.by = "Anno2", split.by = "cnt", cols = color.cnt) + labs(x="All")
+```
+
+```{r fig.width=15, fig.height=4.5}
+VlnPlot(GEX.seur, features = "score.Cycling", group.by = "Anno1", split.by = "cnt", cols = color.cnt) + labs(x="All")
+```
+
+
+
+```{r fig.height=4.5, fig.width=15, message=FALSE, warning=FALSE}
+pscore.CC.Anno2 <- GEX.seur@meta.data %>%
+  ggplot(aes(x=cnt2, y= score.Cycling, fill = cnt)) +
+  geom_violin(trim = TRUE, scale = "width", lwd=0.1) +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) &
+  labs(x="", y="", title = "score.Cycling") + NoLegend() +
+  scale_fill_manual(values = color.cnt) +
+    theme(axis.title.x = element_blank(),
+          #axis.text.x = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12.1),
+          #axis.ticks.x = element_blank(),
+          axis.line = element_line(color = "black", size = 0.1),
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          panel.background = element_blank(),
+          plot.margin = unit(c(0.03,0.1,0,0.1),"cm")) + coord_cartesian(ylim=c(-0.15,0.75)) + geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1) +
+    stat_summary(fun.y=mean, geom="point", shape=23, size=0.45, color="black", fill="white", alpha=0.75) +
+    stat_compare_means(aes(label= ..p.signif..),
+                       method = "wilcox.test",
+                       comparisons = list.cnt2,
+                       label.y = c(rep(0.65,13)),
+                       size = 3.5)
+pscore.CC.Anno2
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/sig.score/Cycling/signature.score.Cycling.Anno2_cnt.pdf",
+       plot = pscore.CC.Anno2,
+       width = 15, height = 4.2)
+
+
+```
+
+
+
+```{r}
+pscore.CC <- list()
+```
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["ILC2"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("ILC2")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="ILC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.65),
+                               size=2.75
+                               )
+pscore.CC[["ILC2"]]
+```
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["NEU"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.15),
+                               size=2.75
+                               )
+pscore.CC[["NEU"]]
+```
+
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["cDC"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("cDC")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="cDC only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.4),
+                               size=2.75
+                               )
+pscore.CC[["cDC"]]
+```
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["cDC1"]] <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("cDC1")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="cDC1 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.4),
+                               size=2.75
+                               )
+pscore.CC[["cDC1"]]
+```
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["cDC2"]] <- VlnPlot(subset(GEX.seur, subset = Anno1 %in% c("cDC2")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="cDC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.3),
+                               size=2.75
+                               )
+pscore.CC[["cDC2"]]
+```
+
+
+```{r fig.height=4, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.CC[["migDC"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("migDC")), features = "score.Cycling", group.by = "cnt", cols = color.cnt) + 
+  labs(x="migDC only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.15),
+                               size=2.75
+                               )
+pscore.CC[["migDC"]]
+```
+
+
+```{r eval=FALSE, include=FALSE, paged.print=FALSE}
+for(nn in c("ILC2","NEU","cDC","cDC1","cDC2","migDC")){
+  ggsave(paste0("figure20240407/1.LUNG_only/sig.score/Cycling/signature.score.Cycling.",nn,"_cnt.pdf"),
+         plot = pscore.CC[[nn]],
+         width = 3.2 ,height = 4)
+}
+```
+
+
+```{r fig.width=9.6, fig.height=8}
+cowplot::plot_grid(
+  plotlist = pscore.CC,
+  ncol = 3
+)
+```
+
+
+
+
+### lipid pathways                      
+
+
+```{r}
+# old code previous code see I:\Shared_win\projects\202309_HilpdaILC2\pathway
+
+```
+
+```{r}
+go.list <- list(GO0016042=as.vector(unlist(read.table("./figure20240407/1.LUNG_only/sig.score/pathways/GOlist/GO0016042.txt"))),
+                GO0006635=as.vector(unlist(read.table("./figure20240407/1.LUNG_only/sig.score/pathways/GOlist/GO0006635.txt"))),
+                GO0034440=as.vector(unlist(read.table("./figure20240407/1.LUNG_only/sig.score/pathways/GOlist/GO0034440.txt"))),
+                GO0019395=as.vector(unlist(read.table("./figure20240407/1.LUNG_only/sig.score/pathways/GOlist/GO0019395.txt")))
+                )
+```
+
+```{r}
+lapply(go.list,head)
+```
+
+```{r}
+lapply(go.list, length)
+```
+
+
+```{r fig.width=7.5 , fig.height=4.5}
+library(UpSetR)
+
+upset(fromList(go.list),
+      order.by = 'freq', nsets = 6, point.size=3.5, line.size =1, text.scale = 2)
+  
+grid::grid.text("Overlaps",x = 0.65, y=0.95, gp=grid::gpar(fontsize=20))
+```
+
+
+```{r eval=FALSE, include=FALSE}
+pdf("./figure20240407/1.LUNG_only/sig.score/pathways/GOlist.overlaps.upset_plot.pdf",
+    width = 7.5, height = 4.5)
+upset(fromList(go.list),
+      order.by = 'freq', nsets = 6, point.size=3.5, line.size =1, text.scale = 2)
+  
+grid::grid.text("Overlaps",x = 0.65, y=0.95, gp=grid::gpar(fontsize=20))
+dev.off()
+```
+
+
+
+#### SS2             
+
+```{r}
+matt_pc <- read.csv("../SS2/analysis0915/RNAseq.SS2_RZB.20210707.filt_tpm.pc_gene.csv", row.names = 1)
+```
+
+```{r paged.print=FALSE}
+head(matt_pc)
+```
+
+```{r}
+dim(matt_pc)
+```
+
+```{r}
+name.list <- lapply(names(go.list),function(x){
+  paste0("OE.",x)
+})
+names(name.list) <- names(go.list)
+
+name.list
+```
+
+
+##### overall expression            
+
+```{r message=FALSE, warning=FALSE}
+source("I:/Shared_win/projects/RNA_normal/analysis.r")
+```
+
+
+```{r}
+OE_result1 <- easy_OE(mat_e = matt_pc,
+                      cells_s = colnames(matt_pc),
+                      path_n = name.list,
+                      gene_sign = go.list)
+```
+
+
+```{r}
+OE_result1$OE
+```
+
+
+```{r}
+#write.csv(OE_result1$OE, "figure20240407/1.LUNG_only/sig.score/pathways/OverallExpression.GOlist.SS2_20210707.csv")
+```
+
+
+
+```{r}
+design.cnt <- factor(c(rep("CTL",7),
+                       rep("CKO",7)),
+                     levels = c("CTL","CKO"))
+design.cnt
+```
+
+```{r}
+OE_melt1 <- reshape2::melt(OE_result1$OE)
+OE_melt1$condition <- rep(design.cnt,4)
+OE_melt1[1:10,]
+
+```
+
+
+```{r fig.height=6, fig.width=5.5, message=FALSE, warning=FALSE}
+gg.OE1 <- ggplot(OE_melt1, aes(x = condition, y=value,color=condition)) +
+  #geom_boxplot() +
+    #ylim(c(-0.25,0.35)) +
+  geom_boxplot(outlier.size = 0, outlier.alpha = 0)+
+    geom_jitter(width = 0.12) +
+  #facet_grid(rows = "Var2") + 
+  facet_wrap(~Var2,ncol = 2)+
+    #stat_summary(fun.y=mean, geom="point", shape=18, size=3, color="black") +
+    ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "t.test",
+                               comparisons = list(c("CTL","CKO")),
+                               label.y = c(0.65,0.65),
+                               size=2.1) +
+      scale_color_manual(values = color.cnt[1:2]) +
+    labs(x="",y="Overall Expression of GO.list", title = " ") +
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          panel.background = element_blank(), 
+          panel.border = element_rect(fill = NA)) + coord_cartesian(ylim=(c(-0.6,0.8))) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6))
+gg.OE1
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240407/1.LUNG_only/sig.score/pathways/OverallExpression.GOlist.SS2_20210707.ttest.pdf",
+       plot = gg.OE1,
+       width = 5.5, height = 6)
+```
+
+
+
+#### single                    
+
+
+```{r}
+for(nn in names(go.list)){
+  
+  GEX.seur <- add_geneset_score(obj = GEX.seur,
+                                Assay = "RNA",
+                                geneset = go.list[[nn]],
+                                setname = paste0("score.",nn))
+  
+}
+```
+
+
+```{r fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
+pp.Anno2 <- VlnPlot(GEX.seur, features = paste0("score.",names(go.list)), 
+                    group.by = "Anno2", cols = color.A2, ncol = 2, pt.size = 0) +
+    
+  NoLegend() &
+  geom_jitter(alpha=0.15, shape=16, width = 0.2, size = 0.15) & 
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+    stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & labs(x="")
+pp.Anno2
+```
+
+
+
+```{r fig.height=10, fig.width=15, message=FALSE, warning=FALSE}
+pp.Anno2_cnt <- VlnPlot(GEX.seur, features = paste0("score.",names(go.list)), 
+                        group.by = "cnt2", cols = rep(color.cnt,13), ncol = 2, pt.size = 0) +
+    
+  NoLegend() &
+  geom_jitter(alpha=0.15, shape=16, width = 0.2, size = 0.15) & 
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+    stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & labs(x="") &
+    stat_compare_means(aes(label= ..p.signif..),
+                       method = "wilcox.test",
+                       comparisons = list.cnt2,
+                       label.y = c(rep(0.135,13)),
+                       size = 3.5)
+pp.Anno2_cnt
+```
+
+
+
+```{r fig.height=6, fig.width=6.8, message=FALSE, warning=FALSE}
+pp.ILC2_cnt <- VlnPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2")), 
+                       features = paste0("score.",names(go.list)), group.by = "cnt", cols = color.cnt, ncol = 2, pt.size = 0) +
+    
+  NoLegend() &
+  geom_jitter(alpha=0.35, shape=16, width = 0.2, size = 0.15) & 
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+    stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) #& coord_cartesian(ylim = c(-0.13,0.13)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG_CTL","LUNG_CKO")),
+                               label.y = c(0.05),
+                               size=2.75
+                               )
+pp.ILC2_cnt
+```
+
+```{r}
+names(go.list)
+```
+
+```{r}
+pscore.GO <- list()
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.GO[["GO0016042"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("ILC2")), 
+                                    features = "score.GO0016042", group.by = "cnt", cols = color.cnt) + 
+  labs(x="ILC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.035),
+                               size=2.75
+                               )
+pscore.GO[["GO0016042"]]
+```
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.GO[["GO0006635"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("ILC2")), 
+                                    features = "score.GO0006635", group.by = "cnt", cols = color.cnt) + 
+  labs(x="ILC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.125),
+                               size=2.75
+                               )
+pscore.GO[["GO0006635"]]
+```
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.GO[["GO0034440"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("ILC2")), 
+                                    features = "score.GO0034440", group.by = "cnt", cols = color.cnt) + 
+  labs(x="ILC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.095),
+                               size=2.75
+                               )
+pscore.GO[["GO0034440"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+pscore.GO[["GO0019395"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("ILC2")), 
+                                    features = "score.GO0019395", group.by = "cnt", cols = color.cnt) + 
+  labs(x="ILC2 only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(0.1),
+                               size=2.75
+                               )
+pscore.GO[["GO0019395"]]
+```
+
+
+```{r fig.width=6.4, fig.height=9}
+cowplot::plot_grid(
+  plotlist = pscore.GO,
+  ncol = 2
+)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#
+pdf("./figure20240407/1.LUNG_only/sig.score/pathways/signature.score.GOlist.Anno2.pdf",
+    width = 9,height = 6)
+pp.Anno2
+dev.off()
+
+#
+pdf("./figure20240407/1.LUNG_only/sig.score/pathways/signature.score.GOlist.Anno2_cnt.pdf",
+    width = 16.5,height = 8.5)
+pp.Anno2_cnt
+dev.off()
+
+
+
+#
+pdf("./figure20240407/1.LUNG_only/sig.score/pathways/signature.score.GOlist.ILC2_cnt.pdf",
+    width = 5,height = 7.5)
+cowplot::plot_grid(
+  plotlist = pscore.GO,
+  ncol = 2
+)
+dev.off()
+
+
+
+```
+
+
+
+
+## new plot               
+
+new plot of old figures                      
+
+```{r}
+# previous code see J:\projects_local\projects\20220506_10x_RZB\check_0810
+#     check   Tlr2/Tlr4/Ager/Cxcr2/Cxcl2    All/Ctrl Lung,   Violin
+```
+                     
+
+```{r}
+check.m <- c("Mmp9","Tlr2","Tlr4","Ager",
+                   "Cxcr2","Cxcl2","Zyx","Cd33")
+```
+
+
+```{r}
+#GEX.seur@meta.data[,check.m ] <- t(GEX.seur@assays$RNA@data[check.m,])
+#GEX.seur@meta.data[,check.m ] <- NULL
+```
+
+
+
+```{r}
+ppm.NEU <- list()
+```
+
+
+```{r fig.height=4.5, fig.width=3.2}
+ppm.NEU[["Mmp9"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Mmp9", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(4.235),
+                               size=2.75
+                               )
+ppm.NEU[["Mmp9"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2}
+ppm.NEU[["Tlr2"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Tlr2", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(4.135),
+                               size=2.75
+                               )
+ppm.NEU[["Tlr2"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Tlr4"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Tlr4", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(3.235),
+                               size=2.75
+                               )
+ppm.NEU[["Tlr4"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Ager"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Ager", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(2.235),
+                               size=2.75
+                               )
+ppm.NEU[["Ager"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Cxcr2"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Cxcr2", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(4.235),
+                               size=2.75
+                               )
+ppm.NEU[["Cxcr2"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Cxcl2"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Cxcl2", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(6.235),
+                               size=2.75
+                               )
+ppm.NEU[["Cxcl2"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Zyx"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Zyx", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(4.035),
+                               size=2.75
+                               )
+ppm.NEU[["Zyx"]]
+```
+
+
+```{r fig.height=4.5, fig.width=3.2, message=FALSE, warning=FALSE}
+ppm.NEU[["Cd33"]] <- VlnPlot(subset(GEX.seur, subset = Anno2 %in% c("NEU")), features = "Cd33", group.by = "cnt", cols = color.cnt) + labs(x="NEU only") + NoLegend() +
+  #geom_jitter(alpha=0.1, shape=16, width = 0.2, size = 0.15) & #labs(title = "") &
+    geom_boxplot(outlier.size = 0, fill="white", width=0.2, size=0.1, alpha=0.55) &
+  stat_summary(fun=mean, geom="point", shape=18, size=3, color="black", alpha=0.55) & #coord_cartesian(ylim = c(0,5)) &  
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("LUNG.CTL","LUNG.CKO")),
+                               label.y = c(4.235),
+                               size=2.75
+                               )
+ppm.NEU[["Cd33"]]
+```
+
+
+```{r fig.width=12.8, fig.height=9}
+cowplot::plot_grid(
+  plotlist = ppm.NEU,
+  ncol = 4
+)
+```
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+#
+pdf("./figure20240407/1.LUNG_only/markers.check/markers.check.Anno2_ALL.pdf",
+    width = 11.6,height = 10)
+ppm.Anno2
+dev.off()
+
+
+pdf("./figure20240407/1.LUNG_only/markers.check/markers.check.Anno2_CTL.pdf",
+    width = 11.6,height = 10)
+ppm.Anno2_CTL
+dev.off()
+
+pdf("./figure20240407/1.LUNG_only/markers.check/markers.check.Anno2_CKO.pdf",
+    width = 11.6,height = 10)
+ppm.Anno2_CKO
+dev.off()
+
+
+
+#
+pdf("./figure20240407/1.LUNG_only/markers.check/markers.check.Anno2_cnt.pdf",
+    width = 16.5,height = 11.5)
+ppm.Anno2_cnt
+dev.off()
+
+
+
+#
+pdf("./figure20240407/1.LUNG_only/markers.check/markers.check.NEU_only.pdf",
+    width = 12.8,height = 9)
+cowplot::plot_grid(
+  plotlist = ppm.NEU,
+  ncol = 4
+)
+dev.off()
+
+
+
+```
+
+
+
+## ILC2.1vs.2 DEG0705                    
+
+
+```{r}
+#GEX.seur <- readRDS("./sc10x_RZB.LUNG_Anno.rds")
+GEX.seur
+```
+
+
+```{r fig.width=10.8,fig.height=4.5}
+DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2") & UMAP_2 >8 ), reduction = "umap", label = T, group.by = "Anno1") +
+  DimPlot(subset(GEX.seur, subset=Anno2 %in% c("ILC2")  & UMAP_2 >8 ), reduction = "umap", label = F, group.by = "cnt", cols = color.cnt)
+```
+
+```{r}
+table(GEX.seur@meta.data[,c("Anno1","cnt")])
+```
+
+### subset           
+
+```{r}
+idx.sub <- rownames(GEX.seur@meta.data)[GEX.seur@meta.data$Anno1 %in% c("ILC2.1","ILC2.2")  &
+                                        GEX.seur@meta.data$UMAP_2 > 8 &
+                                        GEX.seur@assays[['RNA']]@data["Mki67",] <0.5]
+
+idx.sub.CTL <- rownames(GEX.seur@meta.data)[GEX.seur@meta.data$Anno1 %in% c("ILC2.1","ILC2.2")  &
+                                            GEX.seur@meta.data$UMAP_2 > 8 &
+                                            GEX.seur@meta.data$cnt %in% c("LUNG.CTL") &
+                                            GEX.seur@assays[['RNA']]@data["Mki67",] <0.5]   # exclude most cycling cells in ILC2.1/2
+
+```
+
+
+
+```{r}
+GEX.sub <- subset(GEX.seur, cells= idx.sub.CTL)
+GEX.sub
+```
+
+```{r}
+table(GEX.sub@meta.data[,c("Anno1","cnt")])
+```
+
+```{r}
+color.A1
+```
+
+```{r}
+color.sub <- color.A1[c("ILC2.1","ILC2.2")]
+color.sub
+```
+
+
+
+```{r fig.height=4.5, fig.width=10.8, message=FALSE, warning=FALSE}
+umap.sub <- DimPlot(GEX.sub, reduction = "umap", label = T, group.by = "Anno1", cols = color.sub) +
+  DimPlot(GEX.sub, reduction = "umap", label = F, group.by = "cnt", cols = color.cnt)
+umap.sub
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240705/LUNG.CTL_ILC2.1.2.umap.pdf",
+       width = 10.8,height = 4.5,
+       plot = umap.sub)
+```
+
+
+
+```{r fig.width=12, fig.height=2.5}
+check1.sub <- FeaturePlot(GEX.sub, features = c("Il1rl1","Il13","Stab1","Stab2"), ncol = 4, cols = c("lightgrey","red"), pt.size = 0.5)
+check1.sub
+```
+
+
+```{r fig.height=3.2, fig.width=9, message=FALSE, warning=FALSE}
+check2.sub <- VlnPlot(GEX.sub, features = c("Il1rl1","Il13","Stab1","Stab2"), ncol = 4, group.by = "Anno1", cols = color.sub) &
+  geom_boxplot(outlier.size = 0, fill="white", width=0.3, size=0.1, alpha=0.55) & labs(x= "LUNG.CTL") &
+  stat_summary(fun=mean, geom="point", shape=18, size=2, color="black", alpha=0.55) &
+  coord_cartesian(ylim=c(0,4)) &
+  ggpubr::stat_compare_means(aes(lable = ..p.signif..), 
+                               method = "wilcox.test",
+                               comparisons = list(c("ILC2.1","ILC2.2")),
+                               label.y = c(2.2),
+                               size=2.5
+                               )
+check2.sub
+```
+
+```{r eval=FALSE, include=FALSE}
+ggsave("figure20240705/check.Stab1_2.feautureplot.pdf",
+       width = 12, height = 2.5,
+       plot = check1.sub)
+ggsave("figure20240705/check.Stab1_2.violinplot.pdf",
+       width = 9, height = 3.2,
+       plot = check2.sub)
+```
+
+
+
+
+### ILC2.1 vs ILC2.2               
+
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+Idents(GEX.sub) <- "Anno1"
+
+#GEX.markers.sub <- FindAllMarkers(GEX.sub, only.pos = TRUE, min.pct = 0.05,
+#                                  test.use = "MAST",
+#                                  logfc.threshold = 0.1)
+GEX.markers.sub <- read.table("sc10x_RZB.DEGs.LUNG.CTL_ILC2.1vs2.20240705.csv", header = TRUE, sep = ",")
+#GEX.markers.sub %>% group_by(cluster) %>% top_n(n = 8, wt = avg_log2FC)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+write.table(GEX.markers.sub, 
+            "sc10x_RZB.DEGs.LUNG.CTL_ILC2.1vs2.20240705.csv", 
+            col.names = TRUE,
+            row.names = FALSE,
+            quote = F,
+            sep = ",")
+```
+
+
+#### stat             
+
+
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+cut.padj = 0.05
+cut.log2FC = 0.1   
+#cut.log2FC = log2(1.5)   
+#cut.log2FC = log2(2)  
+
+cut.pct1 = 0.05
+
+stat_sub.DEGs_Anno1 <- GEX.markers.sub %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame()
+stat_sub.DEGs_Anno1
+```
+
+
+```{r  message=FALSE, warning=FALSE, paged.print=FALSE, fig.width=4.5, fig.height=4}
+stat_sub.DEGs_Anno1.barplot <- GEX.markers.sub %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1) %>%
+                      group_by(cluster) %>%
+                      summarise(up.DEGs = n()) %>% as.data.frame() %>%
+  ggplot(aes(x=cluster, y=up.DEGs, color = cluster)) +
+  geom_bar(stat="summary", fun="mean", position = position_dodge(0.75), width = 0.58, fill="white") +
+  geom_text(aes(label = up.DEGs),vjust=-0.21, show.legend = F, position = position_dodge(0.75) ) +
+  theme_classic(base_size = 15) +
+  scale_color_manual(values = color.sub, name="") +
+  labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |log2FC|>",cut.log2FC), y = "Count",
+       x = "LUNG.CTL") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>1.5"), y = "Count") +
+  #labs(title=paste0("up.DEGs stat, pct.1>",cut.pct1,", padj<",cut.padj,", |FC|>2"), y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6),
+        title =element_text(size=8, face='bold'))
+
+
+
+stat_sub.DEGs_Anno1.barplot
+```
+
+
+
+#### DEG plot   
+
+
+```{r}
+#
+test.sub.combine <- GEX.markers.sub
+test.sub.combine[test.sub.combine$cluster=="ILC2.1","avg_log2FC"] <- -test.sub.combine[test.sub.combine$cluster=="ILC2.1","avg_log2FC"]
+
+```
+
+
+
+```{r fig.width=15, fig.height=8.5}
+pp_sub.DEGs.Anno1 <- test.sub.combine %>%
+  mutate(label=ifelse(((p_val_adj < 1e-3 & avg_log2FC<0) | (p_val_adj < 1e-3 & avg_log2FC>0) | (p_val_adj < 0.05 & abs(avg_log2FC) > 0.15)) &
+                        #!grepl("^Gm|^Hsp|^Rps|^Rpl|Rik$|Xist|Tsix|Uty|Ddx3y|Eif2s3y|Kdm5d",gene),gene,""),
+                        !grepl("^mt",gene),gene,""),
+         sig.=ifelse(p_val_adj<0.05 & avg_log2FC<0,"ILC2.1",ifelse(p_val_adj<0.05 & avg_log2FC>0,"ILC2.2","None")),
+         padj=ifelse(p_val_adj<1e-60,p_val_adj+1e-60,p_val_adj)) %>%
+  ggplot(aes(y= -log10(padj), x=avg_log2FC, size=pct.1, label=label,fill=sig.)) +
+  geom_point(shape=21, alpha=0.65) +
+  geom_text_repel(size=3.25, max.overlaps = 500) +
+  scale_fill_manual(values = c("ILC2.1"=as.vector(color.sub[1]),
+                               "ILC2.2"=as.vector(color.sub[2]),
+                               "None"="grey")) +
+  theme_classic() + labs(title="LUNG.CTL ILC2.1 vs ILC2.2") +
+  guides(size = guide_legend(order = 2), fill=guide_legend(order = 1, reverse = F)) +
+  geom_vline(xintercept = c(-0.1,0.1), linetype="dotted")
+pp_sub.DEGs.Anno1
+```
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+ggsave("./figure20240705/LUNG.CTL_ILC2.1vs2.stat_barplot.pdf",
+       width = 4.5, height = 4,
+       plot = stat_sub.DEGs_Anno1.barplot)
+
+ggsave("./figure20240705/LUNG.CTL_ILC2.1vs2.volcano.pdf",
+       width = 15, height = 8.5,
+       plot = pp_sub.DEGs.Anno1)
+```
+
+
+
+```{r fig.height=11.4, fig.width=9, message=FALSE, warning=FALSE}
+
+sub.ILC2.1 <- (GEX.markers.sub %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1 & cluster %in% c("ILC2.1")))$gene
+  
+sub.ILC2.2 <- (GEX.markers.sub %>% filter(p_val_adj < cut.padj & 
+                          abs(avg_log2FC) > cut.log2FC & 
+                          pct.1 > cut.pct1 & cluster %in% c("ILC2.2")))$gene
+
+DotPlot(subset(GEX.seur, subset = cnt %in% c("LUNG.CTL")), features = rev(sub.ILC2.1), group.by = "Anno1")  + coord_flip() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6)) + labs(x = "LUNG.CTL")
+
+DotPlot(subset(GEX.seur, subset = cnt %in% c("LUNG.CTL")), features = rev(sub.ILC2.2), group.by = "Anno1")  + coord_flip() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9.6)) + labs(x = "LUNG.CTL")
+
+```  
+
+
+
+```{r eval=FALSE, include=FALSE}
+#write.table(sub.ILC2.1, "./figure20240705/sub.GO/LUNG.CTL_ILC2.1_up.txt", row.names = F, col.names = F, quote = F)
+#write.table(sub.ILC2.2, "./figure20240705/sub.GO/LUNG.CTL_ILC2.2_up.txt", row.names = F, col.names = F, quote = F)
+```
+
+
+## save obj for GEO             
+
+```{r}
+#GEX.seur <- readRDS("./sc10x_RZB.LUNG_Anno.rds")
+GEX.seur
+```
+
+```{r fig.width=11.8,fig.height=4.5}
+pumap2 <-DimPlot(GEX.seur, reduction = "umap", label = T, repel = T, label.size = 2.5, group.by = "Anno1", cols = color.A1) + 
+  DimPlot(GEX.seur, reduction = "umap", label = T, repel = T, label.size = 3.75, group.by = "Anno2", cols = color.A2)
+pumap2
+```
+
+
+```{r paged.print=FALSE}
+GEX.seur@meta.data[,grep("Doublet|up|cnt1|cnt2",colnames(GEX.seur@meta.data),value = T)] <- NULL
+head(GEX.seur@meta.data)
+```
+
+```{r}
+#saveRDS(GEX.seur,"./sc10x.LUNG_only.final_Anno.rds")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
